@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 
+import 'core/router/router_core.dart';
 import 'core/theme/app_theme.dart';
-import 'presentation/screens/library/library_screen.dart';
 
 class EpubReaderApp extends StatelessWidget {
-  const EpubReaderApp({super.key});
+  final GoRouter router;
+
+  const EpubReaderApp({super.key, required this.router});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'EPUB Reader',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
-      home: const LibraryScreen(),
+      routerConfig: router,
     );
   }
 }

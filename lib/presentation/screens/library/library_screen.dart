@@ -1,11 +1,14 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/router/router_core.dart';
 import '../../../domain/entities/book.dart';
+import '../../../routes/app_routes.dart';
 import '../../providers/book_providers.dart';
-import '../reader/reader_screen.dart';
+import 'widgets/book_card.dart';
+import 'widgets/delete_book_dialog.dart';
+import 'widgets/empty_library_view.dart';
+import 'widgets/error_view.dart';
 
 class LibraryScreen extends ConsumerWidget {
   const LibraryScreen({super.key});
@@ -33,58 +36,20 @@ class LibraryScreen extends ConsumerWidget {
       body: booksAsync.when(
         data: (books) {
           if (books.isEmpty) {
-            return _buildEmptyLibrary(context);
+            return const EmptyLibraryView();
           }
           return _buildBookGrid(context, ref, books);
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              Text('Error: $error'),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(libraryBooksProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
+        error: (error, stack) => ErrorView(
+          error: error,
+          onRetry: () => ref.invalidate(libraryBooksProvider),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: isImporting ? null : () => _importBook(context, ref),
         icon: const Icon(Icons.add),
         label: const Text('Import'),
-      ),
-    );
-  }
-
-  Widget _buildEmptyLibrary(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.library_books_outlined,
-            size: 80,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Your library is empty',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Import an EPUB file to get started',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -110,7 +75,7 @@ class LibraryScreen extends ConsumerWidget {
           ),
           itemCount: books.length,
           itemBuilder: (context, index) {
-            return _BookCard(
+            return BookCard(
               book: books[index],
               onTap: () => _openBook(context, books[index]),
               onDelete: () => _deleteBook(context, ref, books[index]),
@@ -133,31 +98,14 @@ class LibraryScreen extends ConsumerWidget {
   }
 
   void _openBook(BuildContext context, Book book) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ReaderScreen(book: book),
-      ),
+    NavigatorManager.pushNamed(
+      AppRoutes.readerName,
+      extra: book,
     );
   }
 
   Future<void> _deleteBook(BuildContext context, WidgetRef ref, Book book) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Book'),
-        content: Text('Are you sure you want to delete "${book.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
+    final confirmed = await DeleteBookDialog.show(context, book);
 
     if (confirmed == true) {
       final deleteBook = ref.read(deleteBookProvider);
@@ -169,111 +117,5 @@ class LibraryScreen extends ConsumerWidget {
         );
       }
     }
-  }
-}
-
-class _BookCard extends StatelessWidget {
-  final Book book;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-
-  const _BookCard({
-    required this.book,
-    required this.onTap,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: () => _showOptions(context),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 4,
-              child: _buildCover(context),
-            ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      book.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      book.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCover(BuildContext context) {
-    if (book.coverPath != null) {
-      final file = File(book.coverPath!);
-      return Image.file(
-        file,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stack) => _buildPlaceholderCover(context),
-      );
-    }
-    return _buildPlaceholderCover(context);
-  }
-
-  Widget _buildPlaceholderCover(BuildContext context) {
-    return Container(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Center(
-        child: Icon(
-          Icons.book,
-          size: 48,
-          color: Theme.of(context).colorScheme.onPrimaryContainer,
-        ),
-      ),
-    );
-  }
-
-  void _showOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Delete'),
-              onTap: () {
-                Navigator.of(context).pop();
-                onDelete();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

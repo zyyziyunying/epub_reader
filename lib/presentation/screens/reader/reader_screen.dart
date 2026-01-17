@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/router/router_core.dart';
 import '../../../domain/entities/book.dart';
 import '../../../domain/entities/chapter.dart';
 import '../../../domain/entities/reading_progress.dart';
@@ -10,18 +11,27 @@ import 'widgets/reader_drawer.dart';
 import 'widgets/reader_settings_sheet.dart';
 
 // 当前书籍的章节列表
-final chaptersProvider = FutureProvider.family<List<Chapter>, String>((ref, bookId) async {
+final chaptersProvider = FutureProvider.family<List<Chapter>, String>((
+  ref,
+  bookId,
+) async {
   final repository = ref.watch(bookRepositoryProvider);
   return repository.getChaptersByBookId(bookId);
 });
 
 // 当前阅读进度
-final currentProgressProvider = StateProvider.family<ReadingProgress, String>((ref, bookId) {
+final currentProgressProvider = StateProvider.family<ReadingProgress, String>((
+  ref,
+  bookId,
+) {
   return ReadingProgress.initial(bookId);
 });
 
 // 加载阅读进度
-final loadProgressProvider = FutureProvider.family<ReadingProgress?, String>((ref, bookId) async {
+final loadProgressProvider = FutureProvider.family<ReadingProgress?, String>((
+  ref,
+  bookId,
+) async {
   final repository = ref.watch(bookRepositoryProvider);
   return repository.getReadingProgress(bookId);
 });
@@ -48,13 +58,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Future<void> _loadProgress() async {
-    final savedProgress = await ref.read(loadProgressProvider(widget.book.id).future);
+    final savedProgress = await ref.read(
+      loadProgressProvider(widget.book.id).future,
+    );
     if (savedProgress != null) {
-      ref.read(currentProgressProvider(widget.book.id).notifier).state = savedProgress;
+      ref.read(currentProgressProvider(widget.book.id).notifier).state =
+          savedProgress;
       if (_pageController.hasClients) {
         _pageController.jumpToPage(savedProgress.chapterIndex);
       } else {
-        _pageController = PageController(initialPage: savedProgress.chapterIndex);
+        _pageController = PageController(
+          initialPage: savedProgress.chapterIndex,
+        );
         if (mounted) setState(() {});
       }
     }
@@ -82,11 +97,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           currentIndex: progress.chapterIndex,
           onChapterSelected: (index) {
             _pageController.jumpToPage(index);
-            Navigator.of(context).pop();
+            NavigatorManager.pop();
           },
         ),
-        loading: () => const Drawer(child: Center(child: CircularProgressIndicator())),
-        error: (_, __) => const Drawer(child: Center(child: Text('Error loading chapters'))),
+        loading: () =>
+            const Drawer(child: Center(child: CircularProgressIndicator())),
+        error: (_, _) =>
+            const Drawer(child: Center(child: Text('Error loading chapters'))),
       ),
       body: GestureDetector(
         onTap: () => setState(() => _showControls = !_showControls),
@@ -146,10 +163,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.7),
-            Colors.transparent,
-          ],
+          colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
         ),
       ),
       child: SafeArea(
@@ -159,7 +173,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => NavigatorManager.pop(),
           ),
           title: Text(
             widget.book.title,
@@ -178,7 +192,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  Widget _buildBottomBar(BuildContext context, AsyncValue<List<Chapter>> chaptersAsync) {
+  Widget _buildBottomBar(
+    BuildContext context,
+    AsyncValue<List<Chapter>> chaptersAsync,
+  ) {
     final progress = ref.watch(currentProgressProvider(widget.book.id));
 
     return Container(
@@ -186,10 +203,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         gradient: LinearGradient(
           begin: Alignment.bottomCenter,
           end: Alignment.topCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.7),
-            Colors.transparent,
-          ],
+          colors: [Colors.black.withValues(alpha: 0.7), Colors.transparent],
         ),
       ),
       child: SafeArea(
@@ -219,19 +233,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         value: progress.chapterIndex.toDouble(),
                         min: 0,
                         max: (chapters.length - 1).toDouble(),
-                        divisions: chapters.length > 1 ? chapters.length - 1 : 1,
+                        divisions: chapters.length > 1
+                            ? chapters.length - 1
+                            : 1,
                         onChanged: (value) {
                           _pageController.jumpToPage(value.toInt());
                         },
                       ),
                       Text(
                         '${progress.chapterIndex + 1} / ${chapters.length}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                   loading: () => const SizedBox(),
-                  error: (_, __) => const SizedBox(),
+                  error: (_, _) => const SizedBox(),
                 ),
               ),
 
@@ -239,14 +258,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               IconButton(
                 icon: const Icon(Icons.skip_next, color: Colors.white),
                 onPressed: chaptersAsync.when(
-                  data: (chapters) => progress.chapterIndex < chapters.length - 1
+                  data: (chapters) =>
+                      progress.chapterIndex < chapters.length - 1
                       ? () => _pageController.nextPage(
                           duration: const Duration(milliseconds: 300),
                           curve: Curves.easeInOut,
                         )
                       : null,
                   loading: () => null,
-                  error: (_, __) => null,
+                  error: (_, _) => null,
                 ),
               ),
 
@@ -263,11 +283,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _onPageChanged(int index) {
-    ref.read(currentProgressProvider(widget.book.id).notifier).state =
-        ref.read(currentProgressProvider(widget.book.id)).copyWith(
-          chapterIndex: index,
-          scrollPosition: 0.0,
-        );
+    ref.read(currentProgressProvider(widget.book.id).notifier).state = ref
+        .read(currentProgressProvider(widget.book.id))
+        .copyWith(chapterIndex: index, scrollPosition: 0.0);
     _saveProgress(index, 0.0);
   }
 
