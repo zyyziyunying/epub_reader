@@ -46,6 +46,16 @@ class FileService {
     final sourceFile = File(sourcePath);
     await sourceFile.copy(destPath);
 
+    // 确保目标文件可写（Windows 上复制只读文件会保留只读属性）
+    if (Platform.isWindows) {
+      try {
+        // 移除只读属性
+        await Process.run('attrib', ['-R', destPath]);
+      } catch (e) {
+        _log.warning('无法移除文件只读属性: $destPath', error: e);
+      }
+    }
+
     return destPath;
   }
 

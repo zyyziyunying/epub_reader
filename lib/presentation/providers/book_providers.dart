@@ -106,11 +106,11 @@ final deleteBookProvider = Provider<Future<void> Function(Book)>((ref) {
     final fileService = ref.read(fileServiceProvider);
     final repository = ref.read(bookRepositoryProvider);
 
-    // 删除文件
-    await fileService.deleteBookFiles(book.filePath, book.coverPath);
-
-    // 删除数据库记录
+    // 先删除数据库记录（这样即使文件删除失败，也会成为孤儿文件在下次启动时清理）
     await repository.deleteBook(book.id);
+
+    // 再删除文件（如果失败不影响用户体验，会在下次启动时清理）
+    await fileService.deleteBookFiles(book.filePath, book.coverPath);
 
     // 刷新书库列表
     ref.invalidate(libraryBooksProvider);
