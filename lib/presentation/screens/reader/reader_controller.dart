@@ -84,20 +84,26 @@ class ReaderController {
     final centerOffset = scrollOffset + (viewportHeight / 2);
 
     // 找到视口中心位置对应的章节
+    // 注意：ListView.builder 只渲染可见的 item，所以需要检查 context 是否存在
     for (int i = 0; i < chapterKeys.length; i++) {
       final context = chapterKeys[i].currentContext;
       if (context == null) continue;
 
       final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-      if (renderBox == null) continue;
+      if (renderBox == null || !renderBox.hasSize) continue;
 
-      final position = renderBox.localToGlobal(Offset.zero);
-      final chapterTop = scrollOffset + position.dy;
-      final chapterBottom = chapterTop + renderBox.size.height;
+      try {
+        final position = renderBox.localToGlobal(Offset.zero);
+        final chapterTop = position.dy + scrollOffset;
+        final chapterBottom = chapterTop + renderBox.size.height;
 
-      // 如果视口中心在这个章节内，返回该章节索引
-      if (centerOffset >= chapterTop && centerOffset < chapterBottom) {
-        return i;
+        // 如果视口中心在这个章节内，返回该章节索引
+        if (centerOffset >= chapterTop && centerOffset < chapterBottom) {
+          return i;
+        }
+      } catch (_) {
+        // 如果章节不在可见区域，跳过
+        continue;
       }
     }
 
@@ -112,25 +118,33 @@ class ReaderController {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!scrollController.hasClients) return;
 
-      // 获取目标章节的实际位置
-      double targetPosition = 0.0;
-
+      // 对于 ListView.builder，尝试直接跳转到目标章节
+      // 如果章节已经渲染，使用精确位置；否则使用估算
       if (index < chapterKeys.length && chapterKeys[index].currentContext != null) {
         final RenderBox? renderBox = chapterKeys[index].currentContext!.findRenderObject() as RenderBox?;
-        if (renderBox != null) {
-          // 获取章节相对于 ScrollView 的位置
-          final position = renderBox.localToGlobal(Offset.zero);
-          targetPosition = scrollController.offset + position.dy;
+        if (renderBox != null && renderBox.hasSize) {
+          try {
+            final position = renderBox.localToGlobal(Offset.zero);
+            final targetPosition = scrollController.offset + position.dy;
+            final maxScroll = scrollController.position.maxScrollExtent;
+
+            scrollController.animateTo(
+              targetPosition.clamp(0.0, maxScroll),
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+            );
+            saveProgress(index, 0.0);
+            return;
+          } catch (_) {}
         }
-      } else {
-        // 如果无法获取实际位置，使用估算（作为后备方案）
-        final maxScroll = scrollController.position.maxScrollExtent;
-        targetPosition = (maxScroll / chapters.length) * index;
       }
 
+      // 后备方案：使用估算位置（适用于章节未渲染的情况）
       final maxScroll = scrollController.position.maxScrollExtent;
+      final estimatedPosition = (maxScroll / chapters.length) * index;
+
       scrollController.animateTo(
-        targetPosition.clamp(0.0, maxScroll),
+        estimatedPosition.clamp(0.0, maxScroll),
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );

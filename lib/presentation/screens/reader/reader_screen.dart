@@ -112,18 +112,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           _controller.initializeChapterKeys(chapters.length);
         }
 
-        return SingleChildScrollView(
+        return ListView.builder(
           controller: _scrollController,
-          child: Column(
-            children: [
-              for (int i = 0; i < chapters.length; i++)
-                ChapterContent(
-                  key: _controller.chapterKeys[i],
-                  chapter: chapters[i],
-                  settings: settings,
-                ),
-            ],
-          ),
+          itemCount: chapters.length,
+          itemBuilder: (context, index) {
+            return ChapterContent(
+              key: _controller.chapterKeys[index],
+              chapter: chapters[index],
+              settings: settings,
+            );
+          },
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
