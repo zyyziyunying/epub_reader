@@ -106,13 +106,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (_isLoadingProgress) {
           return const Center(child: CircularProgressIndicator());
         }
+
+        // 初始化章节 keys
+        if (_controller.chapterKeys.isEmpty || _controller.chapterKeys.length != chapters.length) {
+          _controller.initializeChapterKeys(chapters.length);
+        }
+
         return SingleChildScrollView(
           controller: _scrollController,
           child: Column(
             children: [
               for (int i = 0; i < chapters.length; i++)
                 ChapterContent(
-                  key: ValueKey('chapter_$i'),
+                  key: _controller.chapterKeys[i],
                   chapter: chapters[i],
                   settings: settings,
                 ),

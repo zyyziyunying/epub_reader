@@ -9,6 +9,7 @@ class ReaderController {
   final WidgetRef ref;
   final String bookId;
   final ScrollController scrollController;
+  final List<GlobalKey> chapterKeys = [];
 
   int get currentChapterIndex =>
       ref.read(currentChapterIndexProvider(bookId));
@@ -19,6 +20,13 @@ class ReaderController {
     required this.scrollController,
   }) {
     scrollController.addListener(_onScroll);
+  }
+
+  void initializeChapterKeys(int chapterCount) {
+    chapterKeys.clear();
+    for (int i = 0; i < chapterCount; i++) {
+      chapterKeys.add(GlobalKey());
+    }
   }
 
   Future<void> loadProgress() async {
@@ -55,8 +63,45 @@ class ReaderController {
     final position = scrollController.position;
     final scrollProgress = position.pixels / position.maxScrollExtent;
 
+    // 根据滚动位置更新当前章节索引
+    final newChapterIndex = _calculateCurrentChapterIndex();
     final currentIndex = ref.read(currentChapterIndexProvider(bookId));
-    saveProgress(currentIndex, scrollProgress.clamp(0.0, 1.0));
+
+    if (newChapterIndex != currentIndex) {
+      ref.read(currentChapterIndexProvider(bookId).notifier).state = newChapterIndex;
+    }
+
+    saveProgress(newChapterIndex, scrollProgress.clamp(0.0, 1.0));
+  }
+
+  int _calculateCurrentChapterIndex() {
+    if (!scrollController.hasClients || chapterKeys.isEmpty) {
+      return ref.read(currentChapterIndexProvider(bookId));
+    }
+
+    final scrollOffset = scrollController.offset;
+    final viewportHeight = scrollController.position.viewportDimension;
+    final centerOffset = scrollOffset + (viewportHeight / 2);
+
+    // 找到视口中心位置对应的章节
+    for (int i = 0; i < chapterKeys.length; i++) {
+      final context = chapterKeys[i].currentContext;
+      if (context == null) continue;
+
+      final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox == null) continue;
+
+      final position = renderBox.localToGlobal(Offset.zero);
+      final chapterTop = scrollOffset + position.dy;
+      final chapterBottom = chapterTop + renderBox.size.height;
+
+      // 如果视口中心在这个章节内，返回该章节索引
+      if (centerOffset >= chapterTop && centerOffset < chapterBottom) {
+        return i;
+      }
+    }
+
+    return ref.read(currentChapterIndexProvider(bookId));
   }
 
   void jumpToChapter(int index, List<Chapter> chapters) {
@@ -67,9 +112,23 @@ class ReaderController {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!scrollController.hasClients) return;
 
-      final maxScroll = scrollController.position.maxScrollExtent;
-      final targetPosition = (maxScroll / chapters.length) * index;
+      // 获取目标章节的实际位置
+      double targetPosition = 0.0;
 
+      if (index < chapterKeys.length && chapterKeys[index].currentContext != null) {
+        final RenderBox? renderBox = chapterKeys[index].currentContext!.findRenderObject() as RenderBox?;
+        if (renderBox != null) {
+          // 获取章节相对于 ScrollView 的位置
+          final position = renderBox.localToGlobal(Offset.zero);
+          targetPosition = scrollController.offset + position.dy;
+        }
+      } else {
+        // 如果无法获取实际位置，使用估算（作为后备方案）
+        final maxScroll = scrollController.position.maxScrollExtent;
+        targetPosition = (maxScroll / chapters.length) * index;
+      }
+
+      final maxScroll = scrollController.position.maxScrollExtent;
       scrollController.animateTo(
         targetPosition.clamp(0.0, maxScroll),
         duration: const Duration(milliseconds: 300),
