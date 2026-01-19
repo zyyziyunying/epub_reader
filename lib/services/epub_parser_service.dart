@@ -10,19 +10,37 @@ class EpubParserService {
   Future<ParsedEpub> parseFromFile(String filePath) async {
     final file = File(filePath);
     final bytes = await file.readAsBytes();
-    return parseFromBytes(bytes);
+
+    // 提取文件名（不含扩展名）作为 fallback title
+    final fileName = _extractFileNameWithoutExtension(filePath);
+
+    return parseFromBytes(bytes, fallbackTitle: fileName);
   }
 
   /// 从字节数据解析 EPUB
-  Future<ParsedEpub> parseFromBytes(Uint8List bytes) async {
+  Future<ParsedEpub> parseFromBytes(Uint8List bytes, {String? fallbackTitle}) async {
     final epubBook = await EpubReader.readBook(bytes);
 
+    // 如果 EPUB 的 title 为空，使用 fallbackTitle 或默认值
+    String title;
+    if (epubBook.Title?.trim().isEmpty ?? true) {
+      title = fallbackTitle ?? '未知书名';
+    } else {
+      title = epubBook.Title!.trim();
+    }
+
     return ParsedEpub(
-      title: epubBook.Title ?? 'Unknown',
-      author: epubBook.Author ?? 'Unknown',
+      title: title,
+      author: (epubBook.Author?.trim().isEmpty ?? true) ? '佚名' : epubBook.Author!.trim(),
       coverImage: _extractCoverImage(epubBook),
       chapters: _extractChapters(epubBook),
     );
+  }
+
+  /// 从文件路径提取文件名（不含扩展名）
+  String _extractFileNameWithoutExtension(String filePath) {
+    final fileName = filePath.split(RegExp(r'[/\\]')).last;
+    return fileName.replaceAll(RegExp(r'\.epub$', caseSensitive: false), '');
   }
 
   /// 提取封面图片

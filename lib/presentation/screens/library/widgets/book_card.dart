@@ -1,3 +1,4 @@
+import 'package:epub_reader/common/extension/widgets/widget_extension.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../domain/entities/book.dart';
@@ -27,36 +28,38 @@ class BookCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(
-              flex: 4,
-              child: BookCover(coverPath: book.coverPath),
-            ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      book.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+            // 封面图片
+            BookCover(coverPath: book.coverPath).expanded(flex: 3),
+
+            // 书名和作者信息
+            Container(
+              padding: const EdgeInsets.all(8),
+              constraints: const BoxConstraints(
+                minHeight: 70, // 确保有足够的最小高度
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    book.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      book.author,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
+                  ).paddingOnly(bottom: 4),
+                  Text(
+                    book.author.isEmpty || book.author == 'Unknown'
+                        ? '佚名'
+                        : book.author,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
