@@ -46,14 +46,17 @@ class ReaderScreen extends ConsumerStatefulWidget {
 }
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
-  late PageController _pageController;
+  late ScrollController _scrollController;
   bool _showControls = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  int _currentChapterIndex = 0;
+  bool _isLoadingProgress = true;
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _loadProgress();
   }
 
@@ -62,22 +65,46 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       loadProgressProvider(widget.book.id).future,
     );
     if (savedProgress != null) {
+      _currentChapterIndex = savedProgress.chapterIndex;
       ref.read(currentProgressProvider(widget.book.id).notifier).state =
           savedProgress;
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(savedProgress.chapterIndex);
-      } else {
-        _pageController = PageController(
-          initialPage: savedProgress.chapterIndex,
-        );
-        if (mounted) setState(() {});
-      }
     }
+    setState(() => _isLoadingProgress = false);
+
+    // 等待章节加载完成后恢复滚动位置
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (savedProgress != null && _scrollController.hasClients) {
+        _scrollToSavedPosition(savedProgress);
+      }
+    });
+  }
+
+  void _scrollToSavedPosition(ReadingProgress progress) {
+    // 等待布局完成后再滚动
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (!_scrollController.hasClients) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final targetScroll = maxScroll * progress.scrollPosition;
+
+      _scrollController.jumpTo(targetScroll.clamp(0.0, maxScroll));
+    });
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+    final scrollProgress = position.pixels / position.maxScrollExtent;
+
+    // 保存滚动进度
+    _saveProgress(_currentChapterIndex, scrollProgress.clamp(0.0, 1.0));
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -85,7 +112,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Widget build(BuildContext context) {
     final chaptersAsync = ref.watch(chaptersProvider(widget.book.id));
     final settings = ref.watch(readingSettingsProvider);
-    final progress = ref.watch(currentProgressProvider(widget.book.id));
 
     return Scaffold(
       key: _scaffoldKey,
@@ -94,9 +120,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         data: (chapters) => ReaderDrawer(
           book: widget.book,
           chapters: chapters,
-          currentIndex: progress.chapterIndex,
+          currentIndex: _currentChapterIndex,
           onChapterSelected: (index) {
-            _pageController.jumpToPage(index);
+            _jumpToChapter(index, chapters);
             NavigatorManager.pop();
           },
         ),
@@ -109,25 +135,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         onTap: () => setState(() => _showControls = !_showControls),
         child: Stack(
           children: [
-            // 内容区域
+            // 内容区域 - 连续滚动所有章节
             chaptersAsync.when(
               data: (chapters) {
                 if (chapters.isEmpty) {
                   return const Center(child: Text('No chapters found'));
                 }
-                return PageView.builder(
-                  controller: _pageController,
-                  itemCount: chapters.length,
-                  onPageChanged: (index) => _onPageChanged(index),
-                  itemBuilder: (context, index) {
-                    return ChapterContent(
-                      chapter: chapters[index],
-                      settings: settings,
-                      onScrollPositionChanged: (position) {
-                        _saveProgress(index, position);
-                      },
-                    );
-                  },
+                if (_isLoadingProgress) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                return SingleChildScrollView(
+                  controller: _scrollController,
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < chapters.length; i++)
+                        ChapterContent(
+                          key: ValueKey('chapter_$i'),
+                          chapter: chapters[i],
+                          settings: settings,
+                        ),
+                    ],
+                  ),
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -196,8 +224,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     BuildContext context,
     AsyncValue<List<Chapter>> chaptersAsync,
   ) {
-    final progress = ref.watch(currentProgressProvider(widget.book.id));
-
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -215,33 +241,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               // 上一章
               IconButton(
                 icon: const Icon(Icons.skip_previous, color: Colors.white),
-                onPressed: progress.chapterIndex > 0
-                    ? () => _pageController.previousPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      )
+                onPressed: _currentChapterIndex > 0
+                    ? () => chaptersAsync.whenData((chapters) {
+                        _jumpToChapter(_currentChapterIndex - 1, chapters);
+                      })
                     : null,
               ),
 
-              // 进度条
+              // 进度条和章节信息
               Expanded(
                 child: chaptersAsync.when(
                   data: (chapters) => Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Slider(
-                        value: progress.chapterIndex.toDouble(),
+                        value: _currentChapterIndex.toDouble(),
                         min: 0,
                         max: (chapters.length - 1).toDouble(),
                         divisions: chapters.length > 1
                             ? chapters.length - 1
                             : 1,
                         onChanged: (value) {
-                          _pageController.jumpToPage(value.toInt());
+                          _jumpToChapter(value.toInt(), chapters);
                         },
                       ),
                       Text(
-                        '${progress.chapterIndex + 1} / ${chapters.length}',
+                        '${_currentChapterIndex + 1} / ${chapters.length}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
@@ -259,11 +284,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 icon: const Icon(Icons.skip_next, color: Colors.white),
                 onPressed: chaptersAsync.when(
                   data: (chapters) =>
-                      progress.chapterIndex < chapters.length - 1
-                      ? () => _pageController.nextPage(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        )
+                      _currentChapterIndex < chapters.length - 1
+                      ? () => _jumpToChapter(_currentChapterIndex + 1, chapters)
                       : null,
                   loading: () => null,
                   error: (_, _) => null,
@@ -282,10 +304,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  void _onPageChanged(int index) {
-    ref.read(currentProgressProvider(widget.book.id).notifier).state = ref
-        .read(currentProgressProvider(widget.book.id))
-        .copyWith(chapterIndex: index, scrollPosition: 0.0);
+  void _jumpToChapter(int index, List<Chapter> chapters) {
+    if (index < 0 || index >= chapters.length) return;
+
+    setState(() => _currentChapterIndex = index);
+
+    // 计算目标章节的位置
+    // 需要等待下一帧以确保布局完成
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+
+      // 简单估算：假设每个章节高度相似，滚动到对应位置
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final targetPosition = (maxScroll / chapters.length) * index;
+
+      _scrollController.animateTo(
+        targetPosition.clamp(0.0, maxScroll),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    });
+
     _saveProgress(index, 0.0);
   }
 
