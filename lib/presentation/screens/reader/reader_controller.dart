@@ -10,8 +10,8 @@ class ReaderController {
   final String bookId;
   final ScrollController scrollController;
 
-  int _currentChapterIndex = 0;
-  int get currentChapterIndex => _currentChapterIndex;
+  int get currentChapterIndex =>
+      ref.read(currentChapterIndexProvider(bookId));
 
   ReaderController({
     required this.ref,
@@ -27,7 +27,8 @@ class ReaderController {
     );
 
     if (savedProgress != null) {
-      _currentChapterIndex = savedProgress.chapterIndex;
+      ref.read(currentChapterIndexProvider(bookId).notifier).state =
+          savedProgress.chapterIndex;
       ref.read(currentProgressProvider(bookId).notifier).state = savedProgress;
 
       // 等待布局完成后恢复滚动位置
@@ -54,13 +55,14 @@ class ReaderController {
     final position = scrollController.position;
     final scrollProgress = position.pixels / position.maxScrollExtent;
 
-    saveProgress(_currentChapterIndex, scrollProgress.clamp(0.0, 1.0));
+    final currentIndex = ref.read(currentChapterIndexProvider(bookId));
+    saveProgress(currentIndex, scrollProgress.clamp(0.0, 1.0));
   }
 
   void jumpToChapter(int index, List<Chapter> chapters) {
     if (index < 0 || index >= chapters.length) return;
 
-    _currentChapterIndex = index;
+    ref.read(currentChapterIndexProvider(bookId).notifier).state = index;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!scrollController.hasClients) return;

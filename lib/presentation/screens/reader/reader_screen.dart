@@ -75,11 +75,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Widget _buildDrawer(AsyncValue<List<Chapter>> chaptersAsync) {
+    final currentIndex = ref.watch(currentChapterIndexProvider(widget.book.id));
+
     return chaptersAsync.when(
       data: (chapters) => ReaderDrawer(
         book: widget.book,
         chapters: chapters,
-        currentIndex: _controller.currentChapterIndex,
+        currentIndex: currentIndex,
         onChapterSelected: (index) {
           _controller.jumpToChapter(index, chapters);
           Navigator.pop(context);
@@ -136,12 +138,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Widget _buildBottomBar(AsyncValue<List<Chapter>> chaptersAsync) {
+    final currentIndex = ref.watch(currentChapterIndexProvider(widget.book.id));
+
     return Positioned(
       bottom: 0,
       left: 0,
       right: 0,
       child: ReaderBottomBar(
-        currentChapterIndex: _controller.currentChapterIndex,
+        currentChapterIndex: currentIndex,
         chaptersAsync: chaptersAsync,
         onChapterChanged: _controller.jumpToChapter,
         onSettingsPressed: _showSettings,

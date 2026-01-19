@@ -184,6 +184,14 @@ final chaptersProvider = FutureProvider.family<List<Chapter>, String>((
   return repository.getChaptersByBookId(bookId);
 });
 
+// 当前章节索引
+final currentChapterIndexProvider = StateProvider.family<int, String>((
+  ref,
+  bookId,
+) {
+  return 0;
+});
+
 // 当前阅读进度
 final currentProgressProvider = StateProvider.family<ReadingProgress, String>((
   ref,
