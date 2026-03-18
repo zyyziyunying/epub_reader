@@ -14,10 +14,14 @@ import '../../services/file_service.dart';
 
 // Services
 final fileServiceProvider = Provider<FileService>((ref) => FileService());
-final epubParserServiceProvider = Provider<EpubParserService>((ref) => EpubParserService());
+final epubParserServiceProvider = Provider<EpubParserService>(
+  (ref) => EpubParserService(),
+);
 
 // Repository
-final bookRepositoryProvider = Provider<BookRepository>((ref) => BookRepositoryImpl());
+final bookRepositoryProvider = Provider<BookRepository>(
+  (ref) => BookRepositoryImpl(),
+);
 
 // 书库列表
 final libraryBooksProvider = FutureProvider<List<Book>>((ref) async {
@@ -63,7 +67,10 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
       // 保存封面
       String? coverPath;
       if (parsedEpub.coverImage != null) {
-        coverPath = await fileService.saveCoverImage(parsedEpub.coverImage!, bookId);
+        coverPath = await fileService.saveCoverImage(
+          parsedEpub.coverImage!,
+          bookId,
+        );
       }
 
       // 创建书籍实体
@@ -81,13 +88,17 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
       await repository.insertBook(book);
 
       // 保存章节
-      final chapters = parsedEpub.chapters.map((parsed) => Chapter(
-        id: const Uuid().v4(),
-        bookId: bookId,
-        index: parsed.index,
-        title: parsed.title,
-        content: parsed.htmlContent,
-      )).toList();
+      final chapters = parsedEpub.chapters
+          .map(
+            (parsed) => Chapter(
+              id: const Uuid().v4(),
+              bookId: bookId,
+              index: parsed.index,
+              title: parsed.title,
+              content: parsed.htmlContent,
+            ),
+          )
+          .toList();
 
       await repository.insertChapters(chapters);
 
@@ -119,9 +130,10 @@ final deleteBookProvider = Provider<Future<void> Function(Book)>((ref) {
 });
 
 // 阅读设置
-final readingSettingsProvider = StateNotifierProvider<ReadingSettingsNotifier, ReadingSettings>((ref) {
-  return ReadingSettingsNotifier();
-});
+final readingSettingsProvider =
+    StateNotifierProvider<ReadingSettingsNotifier, ReadingSettings>((ref) {
+      return ReadingSettingsNotifier();
+    });
 
 class ReadingSettingsNotifier extends StateNotifier<ReadingSettings> {
   ReadingSettingsNotifier() : super(const ReadingSettings()) {
