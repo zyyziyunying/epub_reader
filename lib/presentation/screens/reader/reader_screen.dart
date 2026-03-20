@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../domain/entities/book.dart';
 import '../../providers/book_providers.dart';
-import 'reader_controller.dart';
 import 'widgets/chapter_content.dart';
 import 'widgets/reader_bottom_bar.dart';
 import 'widgets/reader_drawer.dart';
@@ -23,31 +22,20 @@ class ReaderScreen extends ConsumerStatefulWidget {
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   late ScrollController _scrollController;
-  late ReaderController _controller;
   bool _showControls = false;
-  bool _isLoadingProgress = true;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
-    _controller = ReaderController(
-      ref: ref,
-      bookId: widget.book.id,
-      scrollController: _scrollController,
-    );
-    _loadProgress();
-  }
-
-  Future<void> _loadProgress() async {
-    await _controller.loadProgress();
-    setState(() => _isLoadingProgress = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markAsReading();
+    });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -67,7 +55,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           children: [
             _buildContent(chaptersAsync, settings),
             if (_showControls) _buildTopBar(),
-            if (_showControls) _buildBottomBar(chaptersAsync),
+            if (_showControls) _buildBottomBar(),
           ],
         ),
       ),
@@ -75,18 +63,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   Widget _buildDrawer(AsyncValue<List<Chapter>> chaptersAsync) {
-    final currentIndex = ref.watch(currentChapterIndexProvider(widget.book.id));
-
     return chaptersAsync.when(
-      data: (chapters) => ReaderDrawer(
-        book: widget.book,
-        chapters: chapters,
-        currentIndex: currentIndex,
-        onChapterSelected: (index) {
-          _controller.jumpToChapter(index, chapters);
-          Navigator.pop(context);
-        },
-      ),
+      data: (chapters) => ReaderDrawer(book: widget.book, chapters: chapters),
       loading: () =>
           const Drawer(child: Center(child: CircularProgressIndicator())),
       error: (_, _) =>
@@ -103,24 +81,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (chapters.isEmpty) {
           return const Center(child: Text('No chapters found'));
         }
-        if (_isLoadingProgress) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        // 初始化章节 keys
-        if (_controller.chapterKeys.isEmpty || _controller.chapterKeys.length != chapters.length) {
-          _controller.initializeChapterKeys(chapters.length);
-        }
 
         return ListView.builder(
           controller: _scrollController,
           itemCount: chapters.length,
           itemBuilder: (context, index) {
-            return ChapterContent(
-              key: _controller.chapterKeys[index],
-              chapter: chapters[index],
-              settings: settings,
-            );
+            return ChapterContent(chapter: chapters[index], settings: settings);
           },
         );
       },
@@ -141,20 +107,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  Widget _buildBottomBar(AsyncValue<List<Chapter>> chaptersAsync) {
-    final currentIndex = ref.watch(currentChapterIndexProvider(widget.book.id));
-
+  Widget _buildBottomBar() {
     return Positioned(
       bottom: 0,
       left: 0,
       right: 0,
-      child: ReaderBottomBar(
-        currentChapterIndex: currentIndex,
-        chaptersAsync: chaptersAsync,
-        onChapterChanged: _controller.jumpToChapter,
-        onSettingsPressed: _showSettings,
-      ),
+      child: ReaderBottomBar(onSettingsPressed: _showSettings),
     );
+  }
+
+  Future<void> _markAsReading() async {
+    final repository = ref.read(bookRepositoryProvider);
+    await repository.updateLastReadAt(widget.book.id, DateTime.now());
+    if (!mounted) return;
+    ref.invalidate(libraryBooksProvider);
   }
 
   void _showSettings() {

@@ -6,7 +6,6 @@ import 'package:uuid/uuid.dart';
 import '../../data/repositories/book_repository_impl.dart';
 import '../../domain/entities/book.dart';
 import '../../domain/entities/chapter.dart';
-import '../../domain/entities/reading_progress.dart';
 import '../../domain/entities/reading_settings.dart';
 import '../../domain/repositories/book_repository.dart';
 import '../../services/epub_parser_service.dart';
@@ -194,29 +193,4 @@ final chaptersProvider = FutureProvider.family<List<Chapter>, String>((
 ) async {
   final repository = ref.watch(bookRepositoryProvider);
   return repository.getChaptersByBookId(bookId);
-});
-
-// 当前章节索引
-final currentChapterIndexProvider = StateProvider.family<int, String>((
-  ref,
-  bookId,
-) {
-  return 0;
-});
-
-// 当前阅读进度
-final currentProgressProvider = StateProvider.family<ReadingProgress, String>((
-  ref,
-  bookId,
-) {
-  return ReadingProgress.initial(bookId);
-});
-
-// 加载阅读进度
-final loadProgressProvider = FutureProvider.family<ReadingProgress?, String>((
-  ref,
-  bookId,
-) async {
-  final repository = ref.watch(bookRepositoryProvider);
-  return repository.getReadingProgress(bookId);
 });
