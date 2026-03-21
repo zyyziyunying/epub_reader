@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 `lib/` uses a layered Flutter layout. Keep core business models in `lib/domain/`, persistence and database code in `lib/data/`, EPUB and file helpers in `lib/services/`, and UI state/screens in `lib/presentation/`. Shared routing, theme, and platform setup live in `lib/core/`; reusable logging and extensions live in `lib/common/`. App entry points are `lib/main.dart` and `lib/app.dart`. Tests live under `test/`, and implementation notes belong in `docs/`.
 
+`docs/` is split by purpose. `docs/problem/` contains implementation constraints, blockers, and project decisions that may affect active work. `docs/knowledge/` contains developer-facing background notes for human understanding; it is not agent-required reading unless the task explicitly asks for it. `docs/logging_guide.md` remains the companion guide for logging changes.
+
 ## Build, Test, and Development Commands
 Use the standard Flutter workflow from the repo root:
 
