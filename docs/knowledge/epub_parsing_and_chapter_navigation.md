@@ -18,6 +18,15 @@
 
 如果某个任务需要严格的项目实施口径，应优先查看 `docs/problem/` 下的约束文档。
 
+## 延伸阅读
+
+如果需要继续深入某个专题，可以配合阅读：
+
+- [`epub_path_resolution_and_normalization.md`](./epub_path_resolution_and_normalization.md)
+- [`epub_toc_models_and_linearization.md`](./epub_toc_models_and_linearization.md)
+- [`epub_reader_document_and_toc_mapping.md`](./epub_reader_document_and_toc_mapping.md)
+- [`epub_progress_locator_and_cfi.md`](./epub_progress_locator_and_cfi.md)
+
 ## 核心认识
 
 EPUB 不是一本“完整排版好的书”，而更像一个压缩包，里面包含：
@@ -285,6 +294,13 @@ EPUB 内部大量使用相对路径，例如：
 - 分页模式：更像打开某个资源，再重新分页并跳到对应页
 
 所以很多阅读器的定位层不会直接存“页码”，因为页码对字体、窗口大小、主题和排版方式都很敏感。
+
+如果需要继续深入这些实现细节，可参考：
+
+- 路径与资源匹配：[`epub_path_resolution_and_normalization.md`](./epub_path_resolution_and_normalization.md)
+- TOC 树与线性化：[`epub_toc_models_and_linearization.md`](./epub_toc_models_and_linearization.md)
+- 正文文档与目录项拆层：[`epub_reader_document_and_toc_mapping.md`](./epub_reader_document_and_toc_mapping.md)
+- 进度、Locator 与 CFI：[`epub_progress_locator_and_cfi.md`](./epub_progress_locator_and_cfi.md)
 
 ## 如何判断一个阅读器的 EPUB 支持是否成熟
 
