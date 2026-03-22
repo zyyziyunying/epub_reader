@@ -25,11 +25,7 @@ class BookRepositoryImpl implements BookRepository {
   @override
   Future<Book?> getBookById(String id) async {
     final db = await AppDatabase.database;
-    final maps = await db.query(
-      'books',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final maps = await db.query('books', where: 'id = ?', whereArgs: [id]);
     if (maps.isEmpty) return null;
     return Book.fromMap(maps.first);
   }
@@ -58,11 +54,7 @@ class BookRepositoryImpl implements BookRepository {
   @override
   Future<void> deleteBook(String id) async {
     final db = await AppDatabase.database;
-    await db.delete(
-      'books',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete('books', where: 'id = ?', whereArgs: [id]);
   }
 
   @override
@@ -205,18 +197,15 @@ class BookRepositoryImpl implements BookRepository {
         'saveNavigationDataV2Ready requires at least one reader document.',
       );
     }
-    if (documents.any((document) => document.bookId != bookId)) {
-      throw ArgumentError('All reader documents must belong to book $bookId.');
-    }
-    if (tocItems.any((tocItem) => tocItem.bookId != bookId)) {
-      throw ArgumentError('All TOC items must belong to book $bookId.');
-    }
+    final documentsByIndex = _validateReaderDocuments(bookId, documents);
+    final tocItemsById = _validateTocItems(bookId, tocItems, documentsByIndex);
 
     final progress = _normalizeInitialProgress(
       bookId: bookId,
       documentCount: documents.length,
       initialProgress: initialProgress,
     );
+    _validateProgressReference(bookId, progress, tocItemsById);
     final db = await AppDatabase.database;
 
     await db.transaction((txn) async {
@@ -292,7 +281,9 @@ class BookRepositoryImpl implements BookRepository {
         whereArgs: [bookId],
       );
       if (updatedRows != 1) {
-        throw StateError('Book not found while resetting V2 navigation: $bookId');
+        throw StateError(
+          'Book not found while resetting V2 navigation: $bookId',
+        );
       }
     });
   }
@@ -338,6 +329,128 @@ class BookRepositoryImpl implements BookRepository {
       anchor: progress.anchor,
       updatedAt: progress.updatedAt,
     );
+  }
+
+  Map<int, ReaderDocument> _validateReaderDocuments(
+    String bookId,
+    List<ReaderDocument> documents,
+  ) {
+    final documentsByIndex = <int, ReaderDocument>{};
+    final documentIds = <String>{};
+    final fileNames = <String>{};
+
+    for (final document in documents) {
+      if (document.bookId != bookId) {
+        throw ArgumentError(
+          'All reader documents must belong to book $bookId.',
+        );
+      }
+      if (!documentIds.add(document.id)) {
+        throw ArgumentError(
+          'ReaderDocument.id must be unique within book $bookId.',
+        );
+      }
+      if (!fileNames.add(document.fileName)) {
+        throw ArgumentError(
+          'ReaderDocument.fileName must be unique within book $bookId.',
+        );
+      }
+      if (documentsByIndex.containsKey(document.documentIndex)) {
+        throw ArgumentError(
+          'ReaderDocument.documentIndex must be unique within book $bookId.',
+        );
+      }
+      documentsByIndex[document.documentIndex] = document;
+    }
+
+    for (var index = 0; index < documents.length; index++) {
+      if (!documentsByIndex.containsKey(index)) {
+        throw ArgumentError(
+          'ReaderDocument.documentIndex must be contiguous 0..${documents.length - 1} for book $bookId.',
+        );
+      }
+    }
+
+    return documentsByIndex;
+  }
+
+  Map<String, TocItem> _validateTocItems(
+    String bookId,
+    List<TocItem> tocItems,
+    Map<int, ReaderDocument> documentsByIndex,
+  ) {
+    final tocItemsById = <String, TocItem>{};
+    final tocOrders = <int, TocItem>{};
+
+    for (final tocItem in tocItems) {
+      if (tocItem.bookId != bookId) {
+        throw ArgumentError('All TOC items must belong to book $bookId.');
+      }
+      if (tocItemsById.containsKey(tocItem.id)) {
+        throw ArgumentError('TocItem.id must be unique within book $bookId.');
+      }
+      if (tocOrders.containsKey(tocItem.order)) {
+        throw ArgumentError(
+          'TocItem.order must be unique within book $bookId.',
+        );
+      }
+      tocItemsById[tocItem.id] = tocItem;
+      tocOrders[tocItem.order] = tocItem;
+    }
+
+    for (var order = 0; order < tocItems.length; order++) {
+      if (!tocOrders.containsKey(order)) {
+        throw ArgumentError(
+          'TocItem.order must be contiguous 0..${tocItems.length - 1} for book $bookId.',
+        );
+      }
+    }
+
+    for (final tocItem in tocItems) {
+      final parentId = tocItem.parentId;
+      if (parentId != null && !tocItemsById.containsKey(parentId)) {
+        throw ArgumentError(
+          'TocItem.parentId must reference an existing TOC item.',
+        );
+      }
+
+      final targetDocumentIndex = tocItem.targetDocumentIndex;
+      if (targetDocumentIndex != null &&
+          !documentsByIndex.containsKey(targetDocumentIndex)) {
+        throw RangeError.range(
+          targetDocumentIndex,
+          0,
+          documentsByIndex.length - 1,
+          'targetDocumentIndex',
+        );
+      }
+    }
+
+    return tocItemsById;
+  }
+
+  void _validateProgressReference(
+    String bookId,
+    ReadingProgressV2 progress,
+    Map<String, TocItem> tocItemsById,
+  ) {
+    final tocItemId = progress.tocItemId;
+    if (tocItemId == null) {
+      return;
+    }
+
+    final tocItem = tocItemsById[tocItemId];
+    if (tocItem == null) {
+      throw ArgumentError(
+        'ReadingProgressV2.tocItemId must reference an existing TOC item for book $bookId.',
+      );
+    }
+    if (tocItem.targetDocumentIndex != null &&
+        tocItem.targetDocumentIndex != progress.documentIndex) {
+      throw ArgumentError(
+        'ReadingProgressV2.tocItemId must point to the same documentIndex when the TOC item is directly mappable.',
+      );
+    }
   }
 
   Future<void> _deleteNavigationDataV2(

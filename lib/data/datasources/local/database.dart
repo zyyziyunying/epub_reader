@@ -7,6 +7,7 @@ class AppDatabase {
   static const _databaseVersion = 2;
 
   static Database? _database;
+  static String? _databasePathOverrideForTest;
 
   static Future<Database> get database async {
     _database ??= await _initDatabase();
@@ -14,8 +15,8 @@ class AppDatabase {
   }
 
   static Future<Database> _initDatabase() async {
-    final documentsDirectory = await getApplicationDocumentsDirectory();
-    final path = join(documentsDirectory.path, _databaseName);
+    final path =
+        _databasePathOverrideForTest ?? await _resolveDefaultDatabasePath();
 
     return openDatabase(
       path,
@@ -24,6 +25,20 @@ class AppDatabase {
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  static Future<String> _resolveDefaultDatabasePath() async {
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    return join(documentsDirectory.path, _databaseName);
+  }
+
+  static void overrideDatabasePathForTest(String path) {
+    _databasePathOverrideForTest = path;
+  }
+
+  static Future<void> resetForTest() async {
+    await close();
+    _databasePathOverrideForTest = null;
   }
 
   static Future<void> _onConfigure(Database db) async {

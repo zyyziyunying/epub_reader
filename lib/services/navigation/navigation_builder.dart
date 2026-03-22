@@ -31,7 +31,8 @@ class NavigationBuilder {
       htmlSources: htmlSources,
     );
     final documentIndexByFileName = {
-      for (final document in documents) document.fileName: document.documentIndex,
+      for (final document in documents)
+        document.fileName: document.documentIndex,
     };
     final tocItems = _buildTocItems(
       bookId: bookId,
@@ -59,13 +60,16 @@ class NavigationBuilder {
     final resolved = <String, _ResolvedHtmlSource>{};
 
     for (final htmlFile in htmlFiles) {
-      final fileName = NavigationPathUtils.normalizePackagePath(htmlFile.rawPath);
+      final fileName = NavigationPathUtils.normalizePackagePath(
+        htmlFile.rawPath,
+      );
       if (fileName == null) {
         continue;
       }
 
       final existing = resolved[fileName];
-      if (existing == null || htmlFile.rawPath.compareTo(existing.rawPath) < 0) {
+      if (existing == null ||
+          htmlFile.rawPath.compareTo(existing.rawPath) < 0) {
         resolved[fileName] = _ResolvedHtmlSource(
           rawPath: htmlFile.rawPath,
           fileName: fileName,
@@ -111,10 +115,7 @@ class NavigationBuilder {
       required int? parentOrder,
     }) {
       final order = flattened.length;
-      final resolvedTarget = _resolveTocTarget(
-        href: node.href,
-        tocSourcePath: node.tocSourcePath,
-      );
+      final resolvedTarget = _resolveTocTarget(node);
       flattened.add(
         _FlattenedTocNode(
           order: order,
@@ -138,29 +139,44 @@ class NavigationBuilder {
     return flattened;
   }
 
-  _ResolvedTarget _resolveTocTarget({
-    required String? href,
-    required String tocSourcePath,
-  }) {
+  _ResolvedTarget _resolveTocTarget(NavigationSourceTocNode node) {
+    final normalizedResolvedFileName = node.resolvedFileName == null
+        ? null
+        : NavigationPathUtils.normalizePackagePath(node.resolvedFileName!);
+    final normalizedResolvedAnchor = _normalizeAnchor(node.resolvedAnchor);
+    if (normalizedResolvedFileName != null ||
+        normalizedResolvedAnchor != null) {
+      return _ResolvedTarget(
+        fileName: normalizedResolvedFileName,
+        anchor: normalizedResolvedAnchor,
+      );
+    }
+
+    final href = node.href;
     if (href == null) {
       return const _ResolvedTarget(fileName: null, anchor: null);
     }
 
     final target = _splitHref(href);
-    final normalizedTocSourcePath =
-        NavigationPathUtils.normalizePackagePath(tocSourcePath);
-    final baseDir = NavigationPathUtils.dirname(normalizedTocSourcePath);
-    final rawPath = target.path.isEmpty ? normalizedTocSourcePath : target.path;
-    if (rawPath == null) {
+    final normalizedTocSourcePath = node.tocSourcePath == null
+        ? null
+        : NavigationPathUtils.normalizePackagePath(node.tocSourcePath!);
+    if (target.path.isEmpty) {
+      return _ResolvedTarget(
+        fileName: normalizedTocSourcePath,
+        anchor: target.anchor,
+      );
+    }
+
+    if (normalizedTocSourcePath == null) {
       return _ResolvedTarget(fileName: null, anchor: target.anchor);
     }
 
-    final fileName = target.path.isEmpty
-        ? NavigationPathUtils.normalizePackagePath(rawPath)
-        : NavigationPathUtils.resolvePackagePath(
-            rawPath: rawPath,
-            baseDir: baseDir,
-          );
+    final baseDir = NavigationPathUtils.dirname(normalizedTocSourcePath);
+    final fileName = NavigationPathUtils.resolvePackagePath(
+      rawPath: target.path,
+      baseDir: baseDir,
+    );
 
     return _ResolvedTarget(fileName: fileName, anchor: target.anchor);
   }
@@ -202,10 +218,11 @@ class NavigationBuilder {
       }
     }
 
-    final remaining = candidateFileNames
-        .where((fileName) => !tocSeen.contains(fileName))
-        .toList()
-      ..sort();
+    final remaining =
+        candidateFileNames
+            .where((fileName) => !tocSeen.contains(fileName))
+            .toList()
+          ..sort();
 
     return <String>[...orderedFromToc, ...remaining];
   }
@@ -275,7 +292,9 @@ class NavigationBuilder {
         continue;
       }
 
-      tocItemsByDocumentIndex.putIfAbsent(documentIndex, () => <TocItem>[]).add(tocItem);
+      tocItemsByDocumentIndex
+          .putIfAbsent(documentIndex, () => <TocItem>[])
+          .add(tocItem);
     }
 
     return [
@@ -286,7 +305,9 @@ class NavigationBuilder {
           fileName: document.fileName,
           title: _pickNavTitle(
             documentTitle: document.title,
-            tocItems: tocItemsByDocumentIndex[document.documentIndex] ?? const <TocItem>[],
+            tocItems:
+                tocItemsByDocumentIndex[document.documentIndex] ??
+                const <TocItem>[],
           ),
         ),
     ];
@@ -296,7 +317,8 @@ class NavigationBuilder {
     required String documentTitle,
     required List<TocItem> tocItems,
   }) {
-    final sortedItems = [...tocItems]..sort((left, right) => left.order.compareTo(right.order));
+    final sortedItems = [...tocItems]
+      ..sort((left, right) => left.order.compareTo(right.order));
     for (final tocItem in sortedItems) {
       final cleaned = _cleanText(tocItem.title);
       if (cleaned.isNotEmpty) {
@@ -354,15 +376,7 @@ class NavigationBuilder {
   }) {
     try {
       final document = html_parser.parse(htmlContent);
-      final selectors = <String>[
-        'title',
-        'h1',
-        'h2',
-        'h3',
-        'h4',
-        'h5',
-        'h6',
-      ];
+      final selectors = <String>['title', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
 
       for (final selector in selectors) {
         final element = document.querySelector(selector);
@@ -373,7 +387,9 @@ class NavigationBuilder {
       }
     } catch (_) {}
 
-    final fileStem = _cleanText(NavigationPathUtils.basenameWithoutExtension(fileName));
+    final fileStem = _cleanText(
+      NavigationPathUtils.basenameWithoutExtension(fileName),
+    );
     if (fileStem.isNotEmpty) {
       return fileStem;
     }
@@ -383,6 +399,13 @@ class NavigationBuilder {
 
   String _cleanText(String value) {
     return value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  String? _normalizeAnchor(String? anchor) {
+    if (anchor == null || anchor.isEmpty) {
+      return null;
+    }
+    return anchor;
   }
 
   _SplitHref _splitHref(String href) {
@@ -430,20 +453,14 @@ class _FlattenedTocNode {
 }
 
 class _ResolvedTarget {
-  const _ResolvedTarget({
-    required this.fileName,
-    required this.anchor,
-  });
+  const _ResolvedTarget({required this.fileName, required this.anchor});
 
   final String? fileName;
   final String? anchor;
 }
 
 class _SplitHref {
-  const _SplitHref({
-    required this.path,
-    required this.anchor,
-  });
+  const _SplitHref({required this.path, required this.anchor});
 
   final String path;
   final String? anchor;

@@ -29,10 +29,7 @@ class NavigationSourceHtmlFile {
 }
 
 class NavigationSourceManifestItem {
-  const NavigationSourceManifestItem({
-    required this.id,
-    required this.href,
-  });
+  const NavigationSourceManifestItem({required this.id, required this.href});
 
   final String id;
   final String href;
@@ -51,14 +48,18 @@ class NavigationSourceSpineItem {
 class NavigationSourceTocNode {
   const NavigationSourceTocNode({
     required this.title,
-    required this.href,
-    required this.tocSourcePath,
+    this.href,
+    this.tocSourcePath,
+    this.resolvedFileName,
+    this.resolvedAnchor,
     this.children = const [],
   });
 
   final String title;
   final String? href;
-  final String tocSourcePath;
+  final String? tocSourcePath;
+  final String? resolvedFileName;
+  final String? resolvedAnchor;
   final List<NavigationSourceTocNode> children;
 }
 

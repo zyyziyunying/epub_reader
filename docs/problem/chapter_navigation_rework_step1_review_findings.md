@@ -5,8 +5,8 @@ Date: 2026-03-22
 ## 文档定位
 
 - 本文记录对当前章节导航重构 Step 0 / Step 1 代码改动的审查结论，聚焦“已宣称完成的边界”中仍存在的实现偏差、事务风险和验证缺口
-- 本文属于 `docs/problem/` 下的问题文档；若相关问题被后续提交修复，应更新、关闭或归档本文
-- 若与 [`./chapter_navigation_rework.md`](./chapter_navigation_rework.md) 冲突，以 Phase 1 约束文档为准；本文只回写当前实现与约束之间的差距
+- 本文属于 `docs/problem/` 下的问题文档；当前 4 项 Step 1 finding 已在本轮修复并回写，本文保留为 closure record，后续若再出现新的 Step 1 级问题，应新开问题文档而不是继续沿用旧结论
+- 若与 [`./chapter_navigation_rework.md`](./chapter_navigation_rework.md) 冲突，以 Phase 1 约束文档为准；本文只回写当前实现与约束之间的差距及修复状态
 
 ## 审核范围
 
@@ -24,135 +24,122 @@ Date: 2026-03-22
 
 ## 当前结论
 
-- 当前代码已经把 Step 1 所需的主要表结构、实体和 repository 边界显式落地
-- 当前 UI 主链路仍停留在 legacy 阅读链路，旧书继续读取 `chaptersProvider`，因此“旧书仍走 legacy”这一点当前成立
-- repository 读取侧已经用 `navigation_data_version == 2 && navigation_rebuild_state == ready` 作为 V2 可读前提，因此“非 ready 状态不暴露 V2 数据”在当前 repository 边界上基本成立
-- 但截至本次审查，仍不能判定“Step 1 边界完整且无明显迁移 / 事务 / 读取风险”
-- 主要问题收敛为：真实 TOC 接入仍偏离绑定约束且缺少 adapter 级回归验证、`tocSourcePath` 缺失时解析基准错误、`ready` 写入边界尚未真正收紧到完整 V2 数据、以及 Step 1 缺少自动化回归验证
+- 当前 UI 主链路仍停留在 legacy 阅读链路，旧书继续读取 `chaptersProvider`；这条结论未变
+- repository 读取侧仍使用 `navigation_data_version == 2 && navigation_rebuild_state == ready` 作为 V2 可读前提；这条读取边界未变
+- 本次回合已修复此前 4 项 Step 1 finding：
+  - 真实 EPUB TOC 输入已对齐 `epubBook.Chapters`
+  - `tocSourcePath` 缺失时不再按包根生成伪正确映射
+  - `saveNavigationDataV2Ready` 已补最小完整性校验
+  - Step 1 已补最小 database / repository 自动化回归
+- 因此本文原本列出的 Step 1 边界问题当前可视为关闭；当前剩余主要风险已经转移到 Step 2 / Step 3 尚未实现的导入、状态机和阅读会话切换边界
 
-## 审核问题
+## 修复回写
 
-### 1. 实际 EPUB TOC 接入偏离绑定约束
+### 1. [已修复] 真实 EPUB TOC 输入已切回 `epubBook.Chapters`
 
-问题：
+当前状态：
 
-- 当前 [`../services/navigation/navigation_source_adapter.dart`](../../lib/services/navigation/navigation_source_adapter.dart) 直接使用 `schema.Navigation.NavMap.Points` 作为 `tocRoots` 来源
-- 但 Phase 1 约束明确要求：`TocItem` 的唯一结构来源必须是 `epubBook.Chapters` 返回的根节点列表，而不是应用层自行改用其他 TOC 入口
-- 截至本次审查，能够直接确认的是“当前实现偏离了绑定约束”；还不能仅凭当前仓库代码证明“现依赖版本下 `schema.Navigation.NavMap.Points` 与 `epubBook.Chapters` 已产生结构性分叉”
+- [`../../lib/services/navigation/navigation_source_adapter.dart`](../../lib/services/navigation/navigation_source_adapter.dart) 现已使用 `epubBook.Chapters` 生成 `tocRoots`
+- adapter 不再直接以 `schema.Navigation.NavMap.Points` 作为应用层 TOC 入口
+- 已新增 [`../../test/services/navigation/navigation_source_adapter_test.dart`](../../test/services/navigation/navigation_source_adapter_test.dart) 锁定该生产接入边界
 
-风险：
+说明：
 
-- Step 0 builder 测到的是抽象输入模型，但真实 EPUB 接入仍未对齐到约束指定的唯一入口
-- 当前 `epubx 4.0.0` 内部的 `EpubBook.Chapters` 也是基于 `Navigation.NavMap.Points` 生成，因此本次更合理的风险判断是：实现契约与生产接入方式未统一，且缺少 adapter 级回归测试来锁定这一前提
-- 若后续升级解析库、调整 adapter，或项目需要依赖 `epubBook.Chapters` 的稳定契约补充 `tocSourcePath` 上下文，现有实现与测试基线仍可能发生静默分叉
+- 本次修复的结论仍保持审慎口径：它解决的是“实现偏离绑定约束且缺少 adapter 级回归测试”的问题
+- 这不额外宣称当前 `epubx 4.0.0` 内部解析语义已出现新的结构性分叉；只是把生产接入方式重新收敛到约束要求的唯一来源
 
-相关约束与代码：
+### 2. [已修复] `tocSourcePath` 不可解析时改为 unresolved
 
-- 约束：[`./chapter_navigation_rework.md`](./chapter_navigation_rework.md) 中 `TocItem` 唯一生成与线性化契约
-- 代码：[`../../lib/services/navigation/navigation_source_adapter.dart`](../../lib/services/navigation/navigation_source_adapter.dart)
+当前状态：
 
-建议调整：
+- [`../../lib/services/navigation/navigation_builder.dart`](../../lib/services/navigation/navigation_builder.dart) 在 `tocSourcePath` 缺失时，若 `href` 仍需要相对路径基准，现会把该节点收敛为 unresolved
+- 这类节点不会再静默生成伪正确的 `fileName` / `targetDocumentIndex`
+- 已在 [`../../test/services/navigation/navigation_builder_test.dart`](../../test/services/navigation/navigation_builder_test.dart) 新增 focused case 覆盖该边界
 
-- 要么把真实 EPUB TOC 输入切回 `epubBook.Chapters` 对应的唯一来源，并补足 `tocSourcePath` 所需上下文；要么先显式修订绑定约束，避免实现与文档长期分叉
-- 至少补一层 adapter 级测试，保证 builder 测试使用的输入结构与真实生产入口保持一致
+当前口径：
 
-### 2. `tocSourcePath` 缺失时当前实现会错误按包根解析相对 `href`
+- unresolved 的最小保证是：`fileName == null`、`targetDocumentIndex == null`
+- 现实现仍保留可直接从 `href` 本身拆出的 `anchor` 元数据；这不影响 Phase 1 对“不可直接跳转”的判定
 
-问题：
+### 3. [已修复] `saveNavigationDataV2Ready` 已补最小完整性校验
 
-- 当前 adapter 在无法解析 nav/NCX 源路径时，会把 `tocSourcePath` 置为空字符串
-- builder 随后仍继续把相对 `href` 按该空基准解析，等价于隐式假设 TOC 来源文档位于包根目录
+当前状态：
 
-风险：
+- [`../../lib/data/repositories/book_repository_impl.dart`](../../lib/data/repositories/book_repository_impl.dart) 在写入前现已显式校验：
+  - `ReaderDocument.documentIndex` 连续性
+  - `ReaderDocument.id` / `documentIndex` / `fileName` 单书唯一性
+  - `TocItem.order` 连续性
+  - `TocItem.parentId`、`targetDocumentIndex`、`ReadingProgressV2.tocItemId` 引用合法性
+- 因此 `ready` 现在更接近“完整可读的最小 V2 数据”，而不再只是“数据库可写”
 
-- 约束要求 `TocItem.href` 必须基于真实 `tocSourcePath` 解析；若来源路径不可得，不应静默引入新的相对路径基准
-- 对 nav/NCX 文件不在包根目录的 EPUB，这会把 `fileName`、`anchor` 和 `targetDocumentIndex` 静默解析错
-- 错误结果仍可能被持久化为 `ready` 数据，后续阅读链路会把错误当作稳定映射
+仍保留的边界：
 
-相关约束与代码：
+- 本次并未把全部约束下推到 SQL schema；当前最小防线主要在 repository 层
+- 这符合本轮目标，但后续若 Step 2 / Step 3 进一步放大写入入口，仍可再评估是否需要增加更强的数据库级约束
 
-- 约束：[`./chapter_navigation_rework.md`](./chapter_navigation_rework.md) 中“路径来源与规范化基准”
-- 代码：[`../../lib/services/navigation/navigation_source_adapter.dart`](../../lib/services/navigation/navigation_source_adapter.dart)、[`../../lib/services/navigation/navigation_builder.dart`](../../lib/services/navigation/navigation_builder.dart)
+### 4. [已修复] Step 1 已新增最小 database / repository 自动化回归
 
-建议调整：
+当前状态：
 
-- 当 `tocSourcePath` 不可解析时，不要把相对 `href` 默认相对包根解析
-- 这类节点应收敛为 unresolved，令 `fileName` / `targetDocumentIndex` 为空，而不是生成伪正确映射
-
-### 3. `saveNavigationDataV2Ready` 还没有把 `ready` 写入边界收紧到“完整 V2 数据”
-
-问题：
-
-- 当前 repository 在 [`../../lib/data/repositories/book_repository_impl.dart`](../../lib/data/repositories/book_repository_impl.dart) 中提供了单书事务写入入口 `saveNavigationDataV2Ready`
-- 但该方法目前只校验：
-  - `documents` 非空
-  - `documents` 与 `tocItems` 的 `bookId` 必须一致
-  - `initialProgress.documentIndex` 在文档范围内
-- 数据库 schema 也未约束以下关键不变量：
-  - `document_index` 必须连续且无洞
-  - `target_document_index` 必须落在有效范围
-  - `parent_id` 必须引用同书已存在的父 TOC 节点
-  - `reading_progress_v2.toc_item_id` 若非空，必须引用同书合法 TOC 项
-
-风险：
-
-- 只要调用方传入“SQL 可写但结构不完整”的 V2 数据，repository 仍会把书状态切到 `ready`
-- 一旦后续 Step 2 / Step 3 开始真正消费这些接口，`ready` 将不再等价于“完整且可读的 V2 数据”
-- 这与 Step 1 原本要把事务和读取边界收紧在 repository 的目标不符
-
-相关约束与代码：
-
-- 计划要求：[`../plan/chapter_navigation_rewrite_plan.md`](../plan/chapter_navigation_rewrite_plan.md) 中 Step 1 的 repository 边界定义
-- 当前进度宣称：[`../progress/chapter_navigation_rewrite_progress.md`](../progress/chapter_navigation_rewrite_progress.md) 中 `ready` 事务写入与读取边界说明
-- 代码：[`../../lib/data/repositories/book_repository_impl.dart`](../../lib/data/repositories/book_repository_impl.dart)、[`../../lib/data/datasources/local/database.dart`](../../lib/data/datasources/local/database.dart)
-
-建议调整：
-
-- 在 repository 写入前补齐结构校验，不要把完整性假设全部留给调用方
-- 至少显式校验：
-  - `documentIndex` 从 `0..n-1` 连续分配
-  - `ReaderDocument.fileName`、`documentIndex` 在单书内唯一
-  - `TocItem.order` 连续稳定
-  - `parentId`、`targetDocumentIndex`、`tocItemId` 的引用目标合法
-- 若短期内不想把全部约束下推到 SQL，也应先在 repository 层补最小防线
-
-### 4. Step 1 的迁移 / 事务 / 读取边界仍缺少自动化回归
-
-问题：
-
-- 当前仓库与本次导航重构直接相关的自动化测试只有 [`../../test/services/navigation/navigation_builder_test.dart`](../../test/services/navigation/navigation_builder_test.dart)
-- 数据库升级、旧书默认落 `legacy_pending`、非 `ready` 状态读不到 V2、`saveNavigationDataV2Ready` 的事务回滚与 `resetNavigationDataToLegacy` 清理边界，目前没有对应测试
-- 当前进度文档也明确写到：UI 还没有命中 `saveNavigationDataV2Ready`，若要验证 Step 1 事务接口，需要额外 harness 或调试入口
-
-风险：
-
-- 当前 Step 1 的“不会误读半成品 V2 数据”更多是代码静态推断，而不是执行验证
-- 一旦后续继续接 Step 2 / Step 3，没有数据库层回归测试，迁移默认值、事务顺序和失败清理很容易静默退化
-- 尤其是旧库升级场景，若没有 migration test，很难证明旧书一定稳定初始化为 `legacy_pending`
-
-审查补充：
-
-- 本次复核期间再次尝试执行 `flutter test test/services/navigation/navigation_builder_test.dart`
-- 该命令在当前环境下仍然超时，未能得到可靠执行结果；因此现有 focused tests 也未在本次 review 中完成运行确认
-
-建议调整：
-
-- 至少补一组 repository / database 层定向测试，覆盖：
-  - migration 后旧书默认字段值
-  - `ready` 写入成功时的单书事务完整提交
-  - 中途失败时不会残留 `reader_documents` / `toc_items` / `reading_progress_v2`
-  - `legacy_pending` / `failed` 状态下 V2 查询返回空结果
-  - `resetNavigationDataToLegacy` 后状态与 V2 数据同步回退
+- 已新增 [`../../test/data/repositories/book_repository_impl_navigation_test.dart`](../../test/data/repositories/book_repository_impl_navigation_test.dart)
+- 当前 focused tests 已覆盖：
+  - migration 后旧书默认值
+  - 非 `ready` 状态不暴露 V2
+  - `ready` 成功写入与 `resetNavigationDataToLegacy` 回退
+  - `saveNavigationDataV2Ready` 对不完整 payload 的拒绝
+  - 数据库写入失败时的事务回滚不留半成品
+- 本轮本地已运行：
+  - `flutter test test/services/navigation/navigation_builder_test.dart test/services/navigation/navigation_source_adapter_test.dart test/data/repositories/book_repository_impl_navigation_test.dart`
 
 ## 当前可保留结论
 
-- 当前阅读页仍只消费 legacy `chapters`，因此旧书不会因为本次 Step 1 改动被提前切到 V2
-- 当前 repository 侧已经把 V2 读取前提收敛为 `ready + version 2`，这一点应继续保持，后续 Step 2 / Step 3 不应绕过该边界
-- 新导入书籍仍先写 legacy 状态这件事属于 Step 2 未完成项，不应混入本次 Step 1 审核结论
+- 当前阅读页仍只消费 legacy `chapters`，因此旧书不会因为本次 Step 1 修补被提前切到 V2
+- repository 侧继续把 V2 读取前提收敛为 `ready + version 2`，后续 Step 2 / Step 3 不应绕过该边界
+- 新导入书籍仍先写 legacy 状态这件事依旧属于 Step 2 未完成项，不应混入本次 Step 1 修复结论
 
-## 对后续推进的约束建议
+## 剩余风险与后续约束
 
-- 在修复本文问题前，不建议把当前 Step 1 实现直接视为“V2 数据边界已完全收口”
-- Step 2 接新书直达 `ready` 前，应先修正真实 TOC 来源和 `tocSourcePath` 解析基准问题
-- Step 2 / Step 3 开始复用 `saveNavigationDataV2Ready` 前，应先把 `ready` 的最小完整性校验补齐
-- 在继续推进旧书重建状态机前，应先补最小数据库回归测试，否则事务边界只能靠人工推断
+- 本文原 finding 已关闭，但 Step 2 / Step 3 仍未实现，因此不能把当前状态误判为“章节导航重构已完成”
+- 旧书重建状态机、`rebuilding` 期间读取边界、同会话切换策略和阅读器 V2 UI 仍缺少定向验证
+- 后续推进时，若再修改 V2 写入语义、读取选择器或旧书重建时序，应新增对应问题文档或测试，而不是沿用本文已关闭的 Step 1 finding 作为兜底
+
+## 2026-03-22 暂存区严格复核补记
+
+- 本节记录对当前 git 暂存区的追加严格检查结果
+- 以下补记更新了上文“当前 4 项 Step 1 finding 已关闭”的口径：原 4 项问题仍可视为已修复；本节补记中新增暴露出的 2 项 Step 1 级别问题现也已修复，因此本节保留为 closure record，而不是继续作为未关闭问题列表
+- 本节属于对本文的增补记录；后续若继续扩展同类问题，仍建议新开独立问题文档，避免把 closure record 和新问题长期混写
+
+### 5. [已修复] adapter 现已锁定 `epubx 4.0.0` 的真实输入形态
+
+当前状态：
+
+- [`../../lib/services/navigation/navigation_source_adapter.dart`](../../lib/services/navigation/navigation_source_adapter.dart) 现会把 `epubx 4.0.0` 提供的 manifest 相对 `Content.Html` key 与 `EpubChapter.ContentFileName` 按 `ContentDirectoryPath` 统一解析为包内规范路径
+- 因此当 `content.opf` 不在包根、真实输入仍保持 `Text/...` 形态时，builder 侧看到的 candidate html files、TOC target 与 manifest / spine 解析结果现已回到同一基准
+- 已在 [`../../test/services/navigation/navigation_source_adapter_test.dart`](../../test/services/navigation/navigation_source_adapter_test.dart) 新增更接近真实 `epubx 4.0.0` 输出形态的 adapter + builder 回归测试，覆盖：
+  - `opfBaseDir == 'OPS'`
+  - `Content.Html` key 为 manifest 相对路径
+  - `EpubChapter.ContentFileName` 为 manifest 相对路径
+  - `ReaderDocument` 最终仍按 spine 顺序构建
+
+当前口径：
+
+- 本次修复收敛的是 `EpubNavigationSourceAdapter.fromEpubBook -> NavigationBuilder.build` 这条真实生产输入链路
+- `NavigationBuilder` 直接消费手工构造 `NavigationSourceBook` 时，调用方仍应自行保证传入路径基准一致；本次没有把 builder 改造成同时猜测多套路径语义
+
+### 6. [已修复] 当前“事务回滚”测试现已覆盖真正的部分写入后回滚
+
+当前状态：
+
+- [`../../test/data/repositories/book_repository_impl_navigation_test.dart`](../../test/data/repositories/book_repository_impl_navigation_test.dart) 的回滚用例现会先插入合法 `book`
+- 用例随后通过数据库 trigger 人为制造“事务后半段失败”：
+  - `reader_documents`、`toc_items`、`reading_progress_v2` 可先成功写入事务上下文
+  - 最终 `books` 状态更新阶段被强制 abort
+- 用例现已断言：
+  - 事务异常抛出
+  - 三张 V2 子表最终不留半成品
+  - `books.navigation_data_version` 与 `navigation_rebuild_state` 保持 legacy 默认值
+
+当前口径：
+
+- 当前回归已能证明“前半段已成功写入事务上下文，后半段失败后整体回滚不留半成品”
+- 本次仍未分别构造 `toc_items` 插入失败、`reading_progress_v2` 插入失败等更细粒度 SQL 失败点；若后续 repository 写入顺序调整，可再补更窄的定向测试

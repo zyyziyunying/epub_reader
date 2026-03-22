@@ -11,9 +11,12 @@ Date: 2026-03-22
 
 ## 当前阶段结论
 
-- 当前代码已完成 Step 0 和 Step 1
-- 用户可见阅读体验仍停留在 Phase 0 / legacy 链路；V2 数据链路已具备基础落库和读取边界，但尚未接入导入主链路和阅读器主链路
-- 因此下一步可以开始测试 Step 0 的纯数据输出和 Step 1 的数据库迁移稳定性，但还不能从 UI 验证 V2 阅读跳转、上一章 / 下一章或 V2 进度恢复
+- 当前代码已完成 Step 0、Step 1，以及本轮 Step 1 数据边界修补
+- 用户可见阅读体验仍停留在 Phase 0 / legacy 链路；V2 数据链路的 adapter、builder、repository 与数据库回归边界已收紧，但尚未接入导入主链路和阅读器主链路
+- 当前已确认：
+  - 阅读器 UI 仍继续读取 legacy `chaptersProvider`
+  - repository 读取侧仍以 `navigation_data_version == 2 && navigation_rebuild_state == ready` 作为 V2 可读前提
+  - `saveNavigationDataV2Ready` 现在才可近似视为“最小完整 V2 ready 数据”的入口，而不是仅仅“能写进 SQL 的 payload”
 
 ## 已完成切片
 
@@ -33,6 +36,7 @@ Date: 2026-03-22
   - `buildNavigationFromBytes`
 - 已补 focused tests：
   - `test/services/navigation/navigation_builder_test.dart`
+  - `test/services/navigation/navigation_source_adapter_test.dart`
 
 ### Step 1: 数据库迁移 + repository 边界
 
@@ -58,9 +62,17 @@ Date: 2026-03-22
   - 默认 `documentProgress = 0`
   - 默认 `tocItemId = null`
   - 默认 `anchor = null`
-- repository 层当前保证：
-  - 只有 `books.navigation_rebuild_state == ready` 且 `navigation_data_version == 2` 时，V2 数据才可读
-  - `rebuilding` 或其他非 `ready` 状态下，不暴露半成品 V2 数据
+- repository / builder 边界本轮已补齐：
+  - 真实 EPUB TOC 输入已切回 `epubBook.Chapters`；adapter 现会把 `epubx 4.0.0` 的 manifest 相对 `Content.Html` key / `EpubChapter.ContentFileName` 统一解析到包内规范路径，并新增覆盖 `opfBaseDir != ''` 的 adapter + builder 回归测试
+  - `tocSourcePath` 缺失时，builder 会把相对 `href` 收敛为 unresolved，不再按包根生成伪正确 `fileName` / `targetDocumentIndex`
+  - `saveNavigationDataV2Ready` 现已显式校验：
+    - `ReaderDocument.documentIndex` 连续性
+    - `ReaderDocument.id` / `documentIndex` / `fileName` 单书唯一性
+    - `TocItem.order` 连续性
+    - `TocItem.parentId`、`targetDocumentIndex`、`ReadingProgressV2.tocItemId` 引用合法性
+  - `AppDatabase` 已提供测试数据库路径 override，便于做 migration / transaction focused tests
+- 已新增 focused database / repository tests：
+  - `test/data/repositories/book_repository_impl_navigation_test.dart`
 
 ## 当前未完成切片
 
@@ -80,7 +92,8 @@ Date: 2026-03-22
 ## 当前可测试范围
 
 - Step 0 的纯数据导航构建与断言
-- Step 1 的数据库升级是否成功、旧书是否仍可走 legacy 阅读链路、非 `ready` 状态下是否不会误读 V2 数据
+- adapter 到 builder 的真实 EPUB TOC 输入边界
+- Step 1 的数据库升级默认值、旧书 legacy 回退、非 `ready` 状态读取隔离、`ready` 事务写入 / 回退，以及“前半段已写入、后半段失败”场景下的整体回滚
 - `Book` 新状态字段、V2 表结构、repository 新接口的静态闭合情况
 
 ## 当前不可通过 UI 直接测试的范围
@@ -92,12 +105,10 @@ Date: 2026-03-22
 
 ## 建议测试入口
 
-1. 先跑 focused test：
-   `flutter test test/services/navigation/navigation_builder_test.dart`
-2. 再做一次定向静态检查：
-   `dart analyze lib/services/navigation lib/services/epub_parser_service.dart lib/domain/entities lib/domain/repositories/book_repository.dart lib/data/datasources/local/database.dart lib/data/repositories/book_repository_impl.dart lib/presentation/providers/book_providers.dart test/services/navigation/navigation_builder_test.dart`
-3. 然后手工验证数据库升级与 legacy 回退：
+1. 先跑 focused tests：
+   `flutter test test/services/navigation/navigation_builder_test.dart test/services/navigation/navigation_source_adapter_test.dart test/data/repositories/book_repository_impl_navigation_test.dart`
+2. 再做一次手工验证 legacy 回退：
    - 用现有书库数据启动应用
    - 确认旧书仍可打开阅读页
-   - 确认未接 V2 的阅读页没有因为新表或新字段而崩溃
-4. 若要直接验证 Step 1 的事务接口，需要额外加一个临时 harness 或调试入口；当前 UI 还没有命中 `saveNavigationDataV2Ready`
+   - 确认未接 V2 的阅读页没有因为新表、新字段或 Step 1 边界修补而崩溃
+3. 若后续继续推进 Step 2 / Step 3，应新增定向测试，而不是复用本轮 Step 1 回归去间接覆盖状态机
