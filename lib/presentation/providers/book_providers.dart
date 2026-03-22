@@ -60,19 +60,24 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
     if (filePath == null) return null;
 
     ref.read(importingProvider.notifier).state = true;
+    String? savedPath;
+    String? coverPath;
 
     try {
-      // 解析 EPUB
-      final parsedEpub = await parserService.parseFromFile(filePath);
-
-      // 复制文件到应用目录
-      final savedPath = await fileService.copyEpubToAppDirectory(filePath);
-
       // 生成书籍 ID
       final bookId = const Uuid().v4();
 
+      // 解析 EPUB
+      final parsedEpub = await parserService.parseFromFile(filePath);
+      final navigationData = await parserService.buildNavigationFromFile(
+        filePath,
+        bookId: bookId,
+      );
+
+      // 复制文件到应用目录
+      savedPath = await fileService.copyEpubToAppDirectory(filePath);
+
       // 保存封面
-      String? coverPath;
       if (parsedEpub.coverImage != null) {
         coverPath = await fileService.saveCoverImage(
           parsedEpub.coverImage!,
@@ -89,15 +94,12 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
         coverPath: coverPath,
         totalChapters: parsedEpub.chapters.length,
         addedAt: DateTime.now(),
-        navigationDataVersion: Book.legacyNavigationDataVersion,
-        navigationRebuildState: NavigationRebuildState.legacyPending,
+        navigationDataVersion: Book.v2NavigationDataVersion,
+        navigationRebuildState: NavigationRebuildState.ready,
       );
 
-      // 保存到数据库
-      await repository.insertBook(book);
-
-      // 保存章节
-      final chapters = parsedEpub.chapters
+      // 保留 legacy chapters 仅用于当前阅读器 UI 的最小兼容。
+      final legacyChapters = parsedEpub.chapters
           .map(
             (parsed) => Chapter(
               id: const Uuid().v4(),
@@ -109,12 +111,20 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
           )
           .toList();
 
-      await repository.insertChapters(chapters);
+      await repository.importBookWithNavigationDataV2Ready(
+        book: book,
+        legacyChapters: legacyChapters,
+        documents: navigationData.documents,
+        tocItems: navigationData.tocItems,
+      );
 
       // 刷新书库列表
       ref.invalidate(libraryBooksProvider);
 
       return book;
+    } catch (_) {
+      await fileService.deleteBookFiles(savedPath, coverPath);
+      rethrow;
     } finally {
       ref.read(importingProvider.notifier).state = false;
     }

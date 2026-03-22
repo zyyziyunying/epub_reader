@@ -106,6 +106,54 @@ class BookRepositoryImpl implements BookRepository {
   }
 
   @override
+  Future<void> importBookWithNavigationDataV2Ready({
+    required Book book,
+    required List<Chapter> legacyChapters,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+    ReadingProgressV2? initialProgress,
+  }) async {
+    final progress = _prepareNavigationDataV2Ready(
+      bookId: book.id,
+      documents: documents,
+      tocItems: tocItems,
+      initialProgress: initialProgress,
+    );
+    _validateLegacyChapters(book.id, legacyChapters);
+
+    final db = await AppDatabase.database;
+    final pendingBook = book.copyWith(
+      navigationDataVersion: Book.legacyNavigationDataVersion,
+      navigationRebuildState: NavigationRebuildState.legacyPending,
+      navigationRebuildFailedAt: null,
+    );
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        'books',
+        pendingBook.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      for (final chapter in legacyChapters) {
+        await txn.insert(
+          'chapters',
+          chapter.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      await _writeNavigationDataV2Ready(
+        txn,
+        bookId: book.id,
+        documents: documents,
+        tocItems: tocItems,
+        progress: progress,
+      );
+    });
+  }
+
+  @override
   Future<ReadingProgress?> getReadingProgress(String bookId) async {
     final db = await AppDatabase.database;
     final maps = await db.query(
@@ -192,60 +240,22 @@ class BookRepositoryImpl implements BookRepository {
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
   }) async {
-    if (documents.isEmpty) {
-      throw ArgumentError(
-        'saveNavigationDataV2Ready requires at least one reader document.',
-      );
-    }
-    final documentsByIndex = _validateReaderDocuments(bookId, documents);
-    final tocItemsById = _validateTocItems(bookId, tocItems, documentsByIndex);
-
-    final progress = _normalizeInitialProgress(
+    final progress = _prepareNavigationDataV2Ready(
       bookId: bookId,
-      documentCount: documents.length,
+      documents: documents,
+      tocItems: tocItems,
       initialProgress: initialProgress,
     );
-    _validateProgressReference(bookId, progress, tocItemsById);
     final db = await AppDatabase.database;
 
     await db.transaction((txn) async {
-      await _deleteNavigationDataV2(txn, bookId);
-
-      for (final document in documents) {
-        await txn.insert(
-          'reader_documents',
-          document.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      for (final tocItem in tocItems) {
-        await txn.insert(
-          'toc_items',
-          tocItem.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      await txn.insert(
-        'reading_progress_v2',
-        progress.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+      await _writeNavigationDataV2Ready(
+        txn,
+        bookId: bookId,
+        documents: documents,
+        tocItems: tocItems,
+        progress: progress,
       );
-
-      final updatedRows = await txn.update(
-        'books',
-        {
-          'navigation_data_version': Book.v2NavigationDataVersion,
-          'navigation_rebuild_state': NavigationRebuildState.ready.dbValue,
-          'navigation_rebuild_failed_at': null,
-        },
-        where: 'id = ?',
-        whereArgs: [bookId],
-      );
-      if (updatedRows != 1) {
-        throw StateError('Book not found while saving V2 navigation: $bookId');
-      }
     });
   }
 
@@ -301,6 +311,74 @@ class BookRepositoryImpl implements BookRepository {
 
   Future<bool> _canReadV2(String bookId) async {
     return (await getBookReadingDataSource(bookId)).usesV2;
+  }
+
+  ReadingProgressV2 _prepareNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+    required ReadingProgressV2? initialProgress,
+  }) {
+    if (documents.isEmpty) {
+      throw ArgumentError(
+        'saveNavigationDataV2Ready requires at least one reader document.',
+      );
+    }
+    final documentsByIndex = _validateReaderDocuments(bookId, documents);
+    final tocItemsById = _validateTocItems(bookId, tocItems, documentsByIndex);
+    final progress = _normalizeInitialProgress(
+      bookId: bookId,
+      documentCount: documents.length,
+      initialProgress: initialProgress,
+    );
+    _validateProgressReference(bookId, progress, tocItemsById);
+    return progress;
+  }
+
+  Future<void> _writeNavigationDataV2Ready(
+    DatabaseExecutor executor, {
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+    required ReadingProgressV2 progress,
+  }) async {
+    await _deleteNavigationDataV2(executor, bookId);
+
+    for (final document in documents) {
+      await executor.insert(
+        'reader_documents',
+        document.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    for (final tocItem in tocItems) {
+      await executor.insert(
+        'toc_items',
+        tocItem.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    await executor.insert(
+      'reading_progress_v2',
+      progress.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    final updatedRows = await executor.update(
+      'books',
+      {
+        'navigation_data_version': Book.v2NavigationDataVersion,
+        'navigation_rebuild_state': NavigationRebuildState.ready.dbValue,
+        'navigation_rebuild_failed_at': null,
+      },
+      where: 'id = ?',
+      whereArgs: [bookId],
+    );
+    if (updatedRows != 1) {
+      throw StateError('Book not found while saving V2 navigation: $bookId');
+    }
   }
 
   ReadingProgressV2 _normalizeInitialProgress({
@@ -450,6 +528,27 @@ class BookRepositoryImpl implements BookRepository {
       throw ArgumentError(
         'ReadingProgressV2.tocItemId must point to the same documentIndex when the TOC item is directly mappable.',
       );
+    }
+  }
+
+  void _validateLegacyChapters(String bookId, List<Chapter> legacyChapters) {
+    final chapterIds = <String>{};
+    final chapterIndexes = <int>{};
+
+    for (final chapter in legacyChapters) {
+      if (chapter.bookId != bookId) {
+        throw ArgumentError('All legacy chapters must belong to book $bookId.');
+      }
+      if (!chapterIds.add(chapter.id)) {
+        throw ArgumentError(
+          'Chapter.id must be unique within imported book $bookId.',
+        );
+      }
+      if (!chapterIndexes.add(chapter.index)) {
+        throw ArgumentError(
+          'Chapter.index must be unique within imported book $bookId.',
+        );
+      }
     }
   }
 

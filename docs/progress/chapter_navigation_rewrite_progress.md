@@ -11,12 +11,14 @@ Date: 2026-03-22
 
 ## 当前阶段结论
 
-- 当前代码已完成 Step 0、Step 1，以及本轮 Step 1 数据边界修补
-- 用户可见阅读体验仍停留在 Phase 0 / legacy 链路；V2 数据链路的 adapter、builder、repository 与数据库回归边界已收紧，但尚未接入导入主链路和阅读器主链路
+- 当前代码已完成 Step 0、Step 1，以及 Step 2 的“新导入书籍直达 V2 ready”
+- 用户可见阅读体验仍停留在 Phase 0 / legacy 链路；V2 数据链路的 adapter、builder、repository 与数据库回归边界已收紧，新书导入现已接入 V2 `ready` 写入，但阅读器主链路尚未切到 V2
 - 当前已确认：
   - 阅读器 UI 仍继续读取 legacy `chaptersProvider`
   - repository 读取侧仍以 `navigation_data_version == 2 && navigation_rebuild_state == ready` 作为 V2 可读前提
   - `saveNavigationDataV2Ready` 现在才可近似视为“最小完整 V2 ready 数据”的入口，而不是仅仅“能写进 SQL 的 payload”
+  - 新导入书籍会在单书事务内写入 `reader_documents`、`toc_items`、最小 `reading_progress_v2`，并直接落库为 `ready`
+  - 为维持当前阅读器 UI，导入链路仍会同时写入 legacy `chapters` 作为兼容数据；这不改变新书的导航状态口径，也不等于 Step 3/4 已落地
 
 ## 已完成切片
 
@@ -74,9 +76,26 @@ Date: 2026-03-22
 - 已新增 focused database / repository tests：
   - `test/data/repositories/book_repository_impl_navigation_test.dart`
 
+### Step 2: 新导入书籍直达 `ready`
+
+- `lib/presentation/providers/book_providers.dart` 的新书导入主链路现已接入：
+  - 解析 EPUB legacy 内容
+  - 构建 V2 navigation payload
+  - 通过 repository 单事务写入新书与 V2 `ready` 数据
+- `lib/data/repositories/book_repository_impl.dart` 已新增新书导入事务入口：
+  - 同一事务内插入 `books`
+  - 写入当前 UI 兼容所需的 legacy `chapters`
+  - 复用 `saveNavigationDataV2Ready` 的校验 / ready 写入语义，写入 `reader_documents`、`toc_items`、最小 `reading_progress_v2`
+  - 事务末尾将 `books.navigation_data_version = 2`、`navigation_rebuild_state = ready`
+- 导入失败时：
+  - 数据库事务整体回滚，不留下新书行或 V2 半成品
+  - provider 会 best-effort 清理已复制的 EPUB / cover 文件
+- 已新增 focused tests：
+  - 新书导入成功后直接为 V2 `ready`
+  - 新书导入在最终 `ready` 切换失败时整体回滚
+
 ## 当前未完成切片
 
-- Step 2：新导入书籍直达 `ready` 还未接入当前导入链路
 - Step 3：旧书 `legacy_pending -> rebuilding -> ready / failed` 状态机还未接入打开书籍流程
 - Step 3：按 `bookId` 驱动的阅读会话 provider / 读取选择器还未建立
 - Step 4：阅读器 V2 渲染、`DocumentNavItem[]` 目录点击、上一章 / 下一章还未实现
@@ -98,7 +117,6 @@ Date: 2026-03-22
 
 ## 当前不可通过 UI 直接测试的范围
 
-- 新导入书籍直接生成 V2 `ready` 数据
 - 旧书首次打开触发重建并在后续会话切换到 V2
 - 目录点击跳转、上一章 / 下一章、当前文档高亮
 - V2 进度保存 / 恢复
@@ -111,4 +129,8 @@ Date: 2026-03-22
    - 用现有书库数据启动应用
    - 确认旧书仍可打开阅读页
    - 确认未接 V2 的阅读页没有因为新表、新字段或 Step 1 边界修补而崩溃
-3. 若后续继续推进 Step 2 / Step 3，应新增定向测试，而不是复用本轮 Step 1 回归去间接覆盖状态机
+3. 手工验证新导入书籍：
+   - 导入一本新 EPUB
+   - 确认书籍记录已直接落为 `navigation_data_version = 2`、`navigation_rebuild_state = ready`
+   - 确认当前阅读页仍可通过 legacy `chapters` 打开，不会因为新书已 `ready` 而立刻切到未实现的 V2 UI
+4. 若后续继续推进 Step 3，应新增定向测试，而不是复用本轮 Step 1 / Step 2 回归去间接覆盖状态机

@@ -17,6 +17,13 @@ abstract class BookRepository {
   Future<Chapter?> getChapter(String bookId, int index);
   Future<void> insertChapter(Chapter chapter);
   Future<void> insertChapters(List<Chapter> chapters);
+  Future<void> importBookWithNavigationDataV2Ready({
+    required Book book,
+    required List<Chapter> legacyChapters,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+    ReadingProgressV2? initialProgress,
+  });
   Future<ReadingProgress?> getReadingProgress(String bookId);
   Future<void> saveReadingProgress(ReadingProgress progress);
   Future<BookReadingDataSource> getBookReadingDataSource(String bookId);

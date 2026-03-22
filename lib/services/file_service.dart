@@ -20,7 +20,9 @@ class FileService {
   /// 获取书籍存储目录
   Future<String> getBooksDirectory() async {
     final documentsPath = await getAppDocumentsPath();
-    final booksDir = Directory(path.join(documentsPath, 'epub_reader', 'books'));
+    final booksDir = Directory(
+      path.join(documentsPath, 'epub_reader', 'books'),
+    );
     if (!await booksDir.exists()) {
       await booksDir.create(recursive: true);
     }
@@ -30,7 +32,9 @@ class FileService {
   /// 获取封面存储目录
   Future<String> getCoversDirectory() async {
     final documentsPath = await getAppDocumentsPath();
-    final coversDir = Directory(path.join(documentsPath, 'epub_reader', 'covers'));
+    final coversDir = Directory(
+      path.join(documentsPath, 'epub_reader', 'covers'),
+    );
     if (!await coversDir.exists()) {
       await coversDir.create(recursive: true);
     }
@@ -89,7 +93,10 @@ class FileService {
   ///
   /// 采用静默失败策略：如果文件被占用无法删除，不抛出异常，
   /// 而是记录日志并返回。孤儿文件会在应用启动时被清理。
-  Future<void> _deleteFileWithRetry(String filePath, {int maxRetries = 5}) async {
+  Future<void> _deleteFileWithRetry(
+    String filePath, {
+    int maxRetries = 5,
+  }) async {
     final file = File(filePath);
     if (!await file.exists()) {
       return;
@@ -118,8 +125,12 @@ class FileService {
   /// 清理孤儿文件（数据库中不存在但文件夹中存在的文件）
   ///
   /// 应在应用启动时调用，清理之前因系统占用而未能删除的文件。
-  /// [validBookIds] 数据库中所有有效的书籍 ID 列表
-  Future<void> cleanOrphanFiles(Set<String> validBookIds) async {
+  /// [validBookFileNames] 数据库中仍有效的 EPUB 文件 basename 集合
+  /// [validCoverFileNames] 数据库中仍有效的封面文件 basename 集合
+  Future<void> cleanOrphanFiles({
+    required Set<String> validBookFileNames,
+    required Set<String> validCoverFileNames,
+  }) async {
     try {
       // 清理书籍文件
       final booksDir = Directory(await getBooksDirectory());
@@ -127,7 +138,7 @@ class FileService {
         await for (final entity in booksDir.list()) {
           if (entity is File && entity.path.endsWith('.epub')) {
             final fileName = path.basenameWithoutExtension(entity.path);
-            if (!validBookIds.contains(fileName)) {
+            if (!validBookFileNames.contains(fileName)) {
               try {
                 await entity.delete();
                 _log.info('已清理孤儿书籍文件: ${entity.path}');
@@ -145,7 +156,7 @@ class FileService {
         await for (final entity in coversDir.list()) {
           if (entity is File && entity.path.endsWith('.jpg')) {
             final fileName = path.basenameWithoutExtension(entity.path);
-            if (!validBookIds.contains(fileName)) {
+            if (!validCoverFileNames.contains(fileName)) {
               try {
                 await entity.delete();
                 _log.info('已清理孤儿封面文件: ${entity.path}');

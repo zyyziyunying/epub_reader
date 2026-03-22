@@ -5,6 +5,7 @@ import 'package:epub_reader/data/datasources/local/database.dart';
 import 'package:epub_reader/data/repositories/book_repository_impl.dart';
 import 'package:epub_reader/domain/entities/book.dart';
 import 'package:epub_reader/domain/entities/book_reading_data_source.dart';
+import 'package:epub_reader/domain/entities/chapter.dart';
 import 'package:epub_reader/domain/entities/navigation_rebuild_state.dart';
 import 'package:epub_reader/domain/entities/reading_progress_v2.dart';
 import 'package:epub_reader/domain/entities/reader_document.dart';
@@ -163,6 +164,58 @@ void main() {
       },
     );
 
+    test(
+      'imports new books directly as ready and keeps legacy chapters for compatibility',
+      () async {
+        const importedBookId = 'book-import';
+        await repository.importBookWithNavigationDataV2Ready(
+          book: _book(importedBookId).copyWith(
+            navigationDataVersion: Book.v2NavigationDataVersion,
+            navigationRebuildState: NavigationRebuildState.ready,
+          ),
+          legacyChapters: _chapters(importedBookId),
+          documents: _documents(importedBookId),
+          tocItems: _tocItems(importedBookId),
+        );
+
+        final book = await repository.getBookById(importedBookId);
+        expect(book, isNotNull);
+        expect(book!.navigationDataVersion, Book.v2NavigationDataVersion);
+        expect(book.navigationRebuildState, NavigationRebuildState.ready);
+        expect(book.navigationRebuildFailedAt, isNull);
+        expect(
+          await repository.getBookReadingDataSource(importedBookId),
+          BookReadingDataSource.v2,
+        );
+
+        expect(
+          (await repository.getChaptersByBookId(
+            importedBookId,
+          )).map((chapter) => chapter.index),
+          orderedEquals([0, 1]),
+        );
+        expect(
+          (await repository.getReaderDocumentsByBookId(
+            importedBookId,
+          )).map((document) => document.documentIndex),
+          orderedEquals([0, 1]),
+        );
+        expect(
+          (await repository.getTocItemsByBookId(
+            importedBookId,
+          )).map((tocItem) => tocItem.order),
+          orderedEquals([0, 1]),
+        );
+
+        final progress = await repository.getReadingProgressV2(importedBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 0);
+        expect(progress.documentProgress, 0);
+        expect(progress.tocItemId, isNull);
+        expect(progress.anchor, isNull);
+      },
+    );
+
     test('rejects incomplete ready payloads before any write', () async {
       await repository.insertBook(_book(existingBookId));
 
@@ -250,6 +303,36 @@ void main() {
       expect(book, isNotNull);
       expect(book!.navigationDataVersion, Book.legacyNavigationDataVersion);
       expect(book.navigationRebuildState, NavigationRebuildState.legacyPending);
+    });
+
+    test('rolls back new-book import when final ready update fails', () async {
+      const importedBookId = 'book-import-fail';
+      final db = await AppDatabase.database;
+      await db.execute('''
+        CREATE TRIGGER fail_new_book_import_ready_update
+        BEFORE UPDATE OF navigation_data_version, navigation_rebuild_state, navigation_rebuild_failed_at ON books
+        WHEN OLD.id = '$importedBookId'
+        BEGIN
+          SELECT RAISE(ABORT, 'forced new book import failure');
+        END;
+      ''');
+
+      await expectLater(
+        repository.importBookWithNavigationDataV2Ready(
+          book: _book(importedBookId).copyWith(
+            navigationDataVersion: Book.v2NavigationDataVersion,
+            navigationRebuildState: NavigationRebuildState.ready,
+          ),
+          legacyChapters: _chapters(importedBookId),
+          documents: _documents(importedBookId),
+          tocItems: _tocItems(importedBookId),
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+
+      expect(await repository.getBookById(importedBookId), isNull);
+      expect(await repository.getChaptersByBookId(importedBookId), isEmpty);
+      await _expectNoV2Rows(importedBookId);
     });
   });
 }
@@ -347,6 +430,21 @@ Book _book(String id) {
     filePath: 'D:/books/$id.epub',
     totalChapters: 2,
     addedAt: DateTime.utc(2026, 3, 22),
+  );
+}
+
+List<Chapter> _chapters(String bookId) {
+  return [_chapter(bookId, 0), _chapter(bookId, 1)];
+}
+
+Chapter _chapter(String bookId, int index) {
+  return Chapter(
+    id: '$bookId:chapter:$index',
+    bookId: bookId,
+    index: index,
+    title: 'Chapter $index',
+    content:
+        '<html><head><title>Chapter $index</title></head><body></body></html>',
   );
 }
 

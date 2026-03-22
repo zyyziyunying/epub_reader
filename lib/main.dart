@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as path;
 
 import 'app.dart';
 import 'common/log/log.dart';
@@ -33,11 +34,7 @@ void main() async {
     ),
   );
 
-  runApp(
-    ProviderScope(
-      child: EpubReaderApp(router: router),
-    ),
-  );
+  runApp(ProviderScope(child: EpubReaderApp(router: router)));
 }
 
 /// 后台清理孤儿文件（之前因系统占用而未能删除的文件）
@@ -48,10 +45,22 @@ void _cleanOrphanFilesInBackground() {
     try {
       final repository = BookRepositoryImpl();
       final books = await repository.getAllBooks();
-      final validBookIds = books.map((book) => book.id).toSet();
+      final validBookFileNames = books
+          .map((book) => path.basenameWithoutExtension(book.filePath))
+          .where((fileName) => fileName.isNotEmpty)
+          .toSet();
+      final validCoverFileNames = books
+          .map((book) => book.coverPath)
+          .whereType<String>()
+          .map(path.basenameWithoutExtension)
+          .where((fileName) => fileName.isNotEmpty)
+          .toSet();
 
       final fileService = FileService();
-      await fileService.cleanOrphanFiles(validBookIds);
+      await fileService.cleanOrphanFiles(
+        validBookFileNames: validBookFileNames,
+        validCoverFileNames: validCoverFileNames,
+      );
     } catch (e, st) {
       log.error('后台清理孤儿文件失败', error: e, stackTrace: st);
     }
