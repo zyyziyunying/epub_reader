@@ -5,6 +5,10 @@ import 'package:epubx/epubx.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:image/image.dart' as img;
 
+import 'navigation/navigation_builder.dart';
+import 'navigation/navigation_models.dart';
+import 'navigation/navigation_source_adapter.dart';
+
 class EpubParserService {
   /// 从文件路径解析 EPUB
   Future<ParsedEpub> parseFromFile(String filePath) async {
@@ -35,6 +39,24 @@ class EpubParserService {
       coverImage: _extractCoverImage(epubBook),
       chapters: _extractChapters(epubBook),
     );
+  }
+
+  Future<NavigationBuildResult> buildNavigationFromFile(
+    String filePath, {
+    required String bookId,
+  }) async {
+    final file = File(filePath);
+    final bytes = await file.readAsBytes();
+    return buildNavigationFromBytes(bytes, bookId: bookId);
+  }
+
+  Future<NavigationBuildResult> buildNavigationFromBytes(
+    Uint8List bytes, {
+    required String bookId,
+  }) async {
+    final epubBook = await EpubReader.readBook(bytes);
+    final source = EpubNavigationSourceAdapter.fromEpubBook(epubBook);
+    return const NavigationBuilder().build(bookId: bookId, source: source);
   }
 
   /// 从文件路径提取文件名（不含扩展名）

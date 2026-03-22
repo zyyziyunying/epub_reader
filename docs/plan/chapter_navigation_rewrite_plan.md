@@ -7,23 +7,40 @@ Date: 2026-03-22
 - 本文用于记录章节导航重构的实施推进方案、推荐落地顺序和验证路线
 - 本文是 guiding 文档，不替代绑定约束；若与 [`../problem/chapter_navigation_rework.md`](../problem/chapter_navigation_rework.md) 冲突，以 `docs/problem/` 中的约束文档为准
 - 若后续实施方式明显变化，应更新本文；若方案边界本身变化，应先修改 `docs/problem/`
+- 当前阶段状态同步见 [`../progress/chapter_navigation_rewrite_progress.md`](../progress/chapter_navigation_rewrite_progress.md)
 
 ## 当前代码基线
 
-截至 2026-03-22，当前代码已经落在 Phase 0 清理后的最小阅读形态：
+截至 2026-03-22，当前代码已推进到 Step 1，状态如下：
 
-- 正文连续滚动阅读
-- 目录列表展示，但章节项暂不可点击
-- 阅读设置调整
-- 进入阅读时更新 `last_read_at`
+- 阅读器 UI 仍保持 Phase 0 的最小阅读形态：
+  - 正文连续滚动阅读
+  - 目录列表展示，但章节项暂不可点击
+  - 阅读设置调整
+  - 进入阅读时更新 `last_read_at`
+- Step 0 已落：
+  - 导航 builder
+  - `ReaderDocument` / `TocItem` / `DocumentNavItem`
+  - builder focused tests
+- Step 1 已落：
+  - `books` 导航状态字段
+  - `reader_documents` / `toc_items` / `reading_progress_v2`
+  - repository 单书事务写入 / 清理入口
+  - legacy / V2 读取选择边界
+  - 最小 `ReadingProgressV2` 默认写入策略
 
 当前代码暂不保证：
 
-- 章节点击跳转
+- 新导入书籍直达 `ready`
+- 旧书 `legacy_pending -> rebuilding -> ready / failed` 重建状态机
+- 按 `bookId` 驱动的统一读取选择器或阅读会话层
+- 阅读器 V2 渲染
+- 目录点击跳转
 - 上一章 / 下一章
 - 章节 Slider 跳转
 - 稳定的当前章节高亮
-- 基于旧模型的进度恢复
+- 统一 `current document` 判定
+- 基于 V2 的进度保存 / 恢复与 legacy 进度映射
 
 这意味着后续工作不应再尝试给 legacy 逻辑打补丁，而应直接围绕 V2 模型补齐数据链路和阅读器能力。
 
@@ -31,23 +48,50 @@ Date: 2026-03-22
 
 - 先落数据契约和切换边界，再接阅读器交互；不要先恢复 UI 入口再补底层
 - 先把 V2 链路做成“可并行存在、可按书切换、失败可回退”，再考虑删除 legacy 职责
-- 优先做可独立验证的纯数据构建与 repository 变更，再做依赖 UI 布局的阅读页行为
+- 优先做 example / fixture 驱动的纯数据验证，再做 repository 变更和阅读页行为
+- “当前文档识别”属于阅读器交互基础能力，不能晚于目录跳转和上一章 / 下一章
+- 旧书重建必须先定义触发者、读取选择器和同会话切换策略；Phase 1 默认不要求会话内热切换
 - 每一步都保持旧书在失败场景下仍能回到 Phase 0 最小阅读体验
 
 ## 建议实施顺序
 
-### 1. 数据库与领域模型
+### 0. fixture / example 驱动的导航模型原型与纯数据断言
+
+目标：
+
+- 先在不接数据库、不接 UI 的前提下固定导航模型构建输出
+- 把路径规范化、TOC 线性化、usable spine / fallback、标题派生和 `DocumentNavItem[]` 派生压成可重复断言
+
+建议产出：
+
+- 4 到 6 个高价值 fixture EPUB 或等价 builder 输入样例
+- 面向 `ReaderDocument[]`、`TocItem[]`、`DocumentNavItem[]` 的纯数据断言
+- 覆盖相同输入重复构建时输出稳定性的测试辅助
+
+完成后应能验证：
+
+- 同一输入重复构建得到一致的 `fileName -> documentIndex` 映射
+- `TocItem.order`、`targetDocumentIndex` 和 `DocumentNavItem.title` 稳定
+- 标题 fallback、路径规范化和正文候选判定不依赖 UI 二次猜测
+
+### 1. 数据库与领域模型 + repository 边界
 
 目标：
 
 - 为 `ReaderDocument`、`TocItem`、`reading_progress_v2` 和书籍级导航状态字段落库
 - 建立 V2 所需的 entity、repository 和 provider 接口
+- 明确 repository 拥有单书事务、失败清理、半成品隔离和 legacy / V2 读取边界
+- 把最小 `ReadingProgressV2` 契约前移，为 `ready` 写入提供完整定义
 
 建议产出：
 
 - 数据库 schema migration
 - `Book` 上的导航状态字段
 - `ReaderDocument`、`TocItem`、`ReadingProgressV2` 实体
+- 单书事务写入入口
+- 单书 V2 数据清理 / 重置入口
+- legacy / V2 读取选择的 repository 边界
+- 最小 `ReadingProgressV2` 默认写入策略与空值语义
 - V2 查询 / 写入 repository 方法
 
 完成后应能验证：
@@ -55,58 +99,62 @@ Date: 2026-03-22
 - 新表可创建、可按书删除和重建
 - 旧书升级后进入 `legacy_pending`
 - repository 层不会误读半成品 V2 数据
+- `ready` 状态的单书事务写入不依赖临时占位逻辑
 
-### 2. 导航模型构建器
-
-目标：
-
-- 从原始 EPUB 稳定生成 `TocItem[]` 和 `ReaderDocument[]`
-- 把路径规范化、usable spine / fallback、标题提取做成纯函数或最小副作用构建链路
-
-建议产出：
-
-- TOC 线性化逻辑
-- 路径规范化逻辑
-- 正文候选集判定逻辑
-- `ReaderDocument.title` 生成逻辑
-- `DocumentNavItem[]` 派生逻辑
-
-完成后应能验证：
-
-- 同一 EPUB 重复构建得到一致结果
-- `targetDocumentIndex` 映射稳定
-- 标题 fallback 不依赖 UI 二次猜测
-
-### 3. 导入与旧书重建链路
+### 2. 新导入书籍直达 `ready`
 
 目标：
 
-- 新导入书籍直接原子写入 V2 ready 状态
-- 旧书按书触发重建，并在失败或中断时回退
+- 新导入书籍直接原子写入 V2 `ready` 状态
+- 先只覆盖新书路径，不把旧书重建和同会话切换混在一起
 
 建议产出：
 
-- 新导入事务化写入链路
-- 旧书 `legacy_pending -> rebuilding -> ready / failed` 状态流转
-- 中断恢复和失败清理逻辑
+- 新书导入事务化写入链路
+- 与 `ready` 同事务提交的最小 `ReadingProgressV2` 写入
+- 导入失败时的单书清理逻辑
 
 完成后应能验证：
 
 - 新书不会先落到 legacy 再切换
+- 新书导入失败不会暴露半成品 V2 数据
+- `ready` 写入路径不需要后补进度语义
+
+### 3. 旧书重建状态机与阅读会话切换边界
+
+目标：
+
+- 旧书按书触发重建，并在失败或中断时回退
+- 先明确谁触发重建、谁负责读取选择、以及同一次会话何时切换读取链路
+
+建议产出：
+
+- 旧书 `legacy_pending -> rebuilding -> ready / failed` 状态流转
+- 按 `bookId` 驱动的阅读会话 provider 或等价读取选择器
+- `rebuilding` 期间强制只读 legacy 的边界
+- `ready` 提交后如何感知并重新加载的时序定义
+- Phase 1 默认策略：本次会话保持 legacy，下次进入切到 V2；若改为热切换，需单独补行为文档和验证
+- 中断恢复和失败清理逻辑
+
+完成后应能验证：
+
 - 旧书重建失败后仍可打开
 - 中断恢复不会保留半成品 V2 数据
+- 同一次阅读会话内不会出现“状态已 ready，但页面仍悬空在错误链路”的未定义行为
 
-### 4. 阅读器 V2 渲染与导航 UI
+### 4. 阅读器 V2 渲染、统一 `current document` 判定与导航 UI
 
 目标：
 
 - 阅读页改为按 `ReaderDocument[]` 渲染
 - 目录抽屉只消费 `DocumentNavItem[]`
 - 上一章 / 下一章按 `documentIndex` 移动
+- 把统一的 `current document` 判定作为目录状态、上一章 / 下一章和底部状态的共同基础
 
 建议产出：
 
 - 读取链路根据书籍状态选择 legacy 或 V2
+- 统一的 `current document` 判定逻辑
 - V2 阅读页正文列表
 - 可点击的 `DocumentNavItem[]`
 - Phase 2-only TOC 统一说明文案
@@ -115,6 +163,7 @@ Date: 2026-03-22
 完成后应能验证：
 
 - ready 书籍只走 V2
+- 目录点击、上一章 / 下一章和底部状态共享同一套 `current document` 逻辑
 - 目录点击只发生在 `DocumentNavItem[]`
 - 含 `anchor` 或同文档多 TOC 节点的 EPUB 不会出现伪精确跳转
 
@@ -127,8 +176,8 @@ Date: 2026-03-22
 
 建议产出：
 
-- 当前文档识别与 `documentProgress` 计算逻辑
 - V2 进度保存 / 恢复逻辑
+- 基于统一 `current document` 判定的 `documentProgress` 计算逻辑
 - legacy 进度映射逻辑
 
 完成后应能验证：
@@ -156,23 +205,30 @@ Date: 2026-03-22
 
 ## 推荐提交切片
 
-1. 数据库迁移 + V2 实体 / repository 接口
-2. EPUB 导航模型构建器 + 纯数据测试
-3. 新导入 / 旧书重建状态机 + 原子切换
-4. 阅读器 V2 渲染、目录交互和上一章 / 下一章
-5. V2 进度保存 / 恢复 + legacy 映射
-6. legacy 导航职责清理
+1. Step 0 fixture / example + 纯数据断言
+2. 数据库迁移 + V2 实体 / repository 单书事务与清理接口 + 最小 `ReadingProgressV2` 契约
+3. 新导入书籍直达 `ready`
+4. 旧书重建状态机 + 阅读会话读取切换边界
+5. 阅读器 V2 渲染、统一 `current document` 判定、目录交互和上一章 / 下一章
+6. V2 进度保存 / 恢复 + legacy 映射
+7. legacy 导航职责清理
 
 ## 验证推进方案
+
+### 先固定可重复样例
+
+- 不要先做完数据库和 UI 再靠手工回归验证导航契约
+- Step 0 先固定 4 到 6 个高价值样例，至少覆盖普通 EPUB、usable spine 异常、fallback 路径、`href#anchor`、同文档多 TOC 节点和标题 fallback
+- 优先对以下纯数据结果做固定断言：路径规范化、`ReaderDocument.documentIndex`、`TocItem.order`、`targetDocumentIndex`、`ReaderDocument.title`、`DocumentNavItem.title`
 
 ### 核心验证主题
 
 1. 数据构建一致性
-   以 [`../problem/chapter_navigation_rework.md`](../problem/chapter_navigation_rework.md) 中的“TOC 与正文映射契约”“路径来源与规范化基准”“`ReaderDocument.title` 唯一生成契约”“文档级导航派生规则”为准，覆盖重复重建一致性、路径收敛、正文候选集判定和标题派生稳定性。
+   以 [`../problem/chapter_navigation_rework.md`](../problem/chapter_navigation_rework.md) 中的“TOC 与正文映射契约”“路径来源与规范化基准”“`ReaderDocument.title` 唯一生成契约”“文档级导航派生规则”为准，优先通过 fixture / example 固化重复重建一致性、路径收敛、正文候选集判定和标题派生稳定性。
 2. 目录与导航边界
-   以约束文档中的“Phase 1 范围收敛”和“Phase 1 完成边界”为准，验证目录抽屉只消费 `DocumentNavItem[]`、Phase 2-only TOC 只显示统一说明、上一章 / 下一章只按 `documentIndex` 移动。
+   以约束文档中的“Phase 1 范围收敛”和“Phase 1 完成边界”为准，验证目录抽屉只消费 `DocumentNavItem[]`、Phase 2-only TOC 只显示统一说明、上一章 / 下一章只按 `documentIndex` 移动，且这些入口共享统一的 `current document` 判定。
 3. 原子切换与失败回退
-   以约束文档中的“V2 迁移与切换约束”为准，验证单书事务写入、中断恢复、失败清理，以及旧书在失败场景下稳定回退到 Phase 0 最小阅读体验。
+   以约束文档中的“V2 迁移与切换约束”为准，验证单书事务写入、中断恢复、失败清理、同会话切换策略，以及旧书在失败场景下稳定回退到 Phase 0 最小阅读体验。
 4. 进度保存与恢复
    以约束文档中的“进度模型定义”和“旧进度处理策略”为准，验证 `documentIndex + documentProgress` 的保存 / 恢复，以及 legacy 进度 best-effort 映射不阻塞打开。
 

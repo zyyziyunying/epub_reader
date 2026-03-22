@@ -1,6 +1,11 @@
+import '../../../domain/entities/book_reading_data_source.dart';
 import '../../../domain/entities/book.dart';
 import '../../../domain/entities/chapter.dart';
+import '../../../domain/entities/navigation_rebuild_state.dart';
 import '../../../domain/entities/reading_progress.dart';
+import '../../../domain/entities/reading_progress_v2.dart';
+import '../../../domain/entities/reader_document.dart';
+import '../../../domain/entities/toc_item.dart';
 
 abstract class BookRepository {
   Future<List<Book>> getAllBooks();
@@ -14,5 +19,20 @@ abstract class BookRepository {
   Future<void> insertChapters(List<Chapter> chapters);
   Future<ReadingProgress?> getReadingProgress(String bookId);
   Future<void> saveReadingProgress(ReadingProgress progress);
+  Future<BookReadingDataSource> getBookReadingDataSource(String bookId);
+  Future<List<ReaderDocument>> getReaderDocumentsByBookId(String bookId);
+  Future<List<TocItem>> getTocItemsByBookId(String bookId);
+  Future<ReadingProgressV2?> getReadingProgressV2(String bookId);
+  Future<void> saveNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+    ReadingProgressV2? initialProgress,
+  });
+  Future<void> resetNavigationDataToLegacy(
+    String bookId, {
+    required NavigationRebuildState rebuildState,
+    DateTime? failedAt,
+  });
   Future<void> updateLastReadAt(String bookId, DateTime time);
 }

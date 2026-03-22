@@ -38,7 +38,7 @@ class ReadingProgress {
     return ReadingProgress(
       bookId: map['book_id'] as String,
       chapterIndex: map['chapter_index'] as int,
-      scrollPosition: map['scroll_position'] as double,
+      scrollPosition: (map['scroll_position'] as num).toDouble(),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] as int),
     );
   }

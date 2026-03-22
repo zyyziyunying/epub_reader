@@ -5,7 +5,9 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/repositories/book_repository_impl.dart';
 import '../../domain/entities/book.dart';
+import '../../domain/entities/book_reading_data_source.dart';
 import '../../domain/entities/chapter.dart';
+import '../../domain/entities/navigation_rebuild_state.dart';
 import '../../domain/entities/reading_settings.dart';
 import '../../domain/repositories/book_repository.dart';
 import '../../services/epub_parser_service.dart';
@@ -27,6 +29,12 @@ final libraryBooksProvider = FutureProvider<List<Book>>((ref) async {
   final repository = ref.watch(bookRepositoryProvider);
   return repository.getAllBooks();
 });
+
+final bookReadingDataSourceProvider =
+    FutureProvider.family<BookReadingDataSource, String>((ref, bookId) async {
+      final repository = ref.watch(bookRepositoryProvider);
+      return repository.getBookReadingDataSource(bookId);
+    });
 
 // 导入状态
 final importingProvider = StateProvider<bool>((ref) => false);
@@ -81,6 +89,8 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
         coverPath: coverPath,
         totalChapters: parsedEpub.chapters.length,
         addedAt: DateTime.now(),
+        navigationDataVersion: Book.legacyNavigationDataVersion,
+        navigationRebuildState: NavigationRebuildState.legacyPending,
       );
 
       // 保存到数据库

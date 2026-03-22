@@ -1,4 +1,9 @@
+import 'navigation_rebuild_state.dart';
+
 class Book {
+  static const int legacyNavigationDataVersion = 0;
+  static const int v2NavigationDataVersion = 2;
+
   final String id;
   final String title;
   final String author;
@@ -7,6 +12,9 @@ class Book {
   final int totalChapters;
   final DateTime addedAt;
   final DateTime? lastReadAt;
+  final int navigationDataVersion;
+  final NavigationRebuildState navigationRebuildState;
+  final DateTime? navigationRebuildFailedAt;
 
   const Book({
     required this.id,
@@ -17,6 +25,9 @@ class Book {
     required this.totalChapters,
     required this.addedAt,
     this.lastReadAt,
+    this.navigationDataVersion = legacyNavigationDataVersion,
+    this.navigationRebuildState = NavigationRebuildState.legacyPending,
+    this.navigationRebuildFailedAt,
   });
 
   Book copyWith({
@@ -28,6 +39,9 @@ class Book {
     int? totalChapters,
     DateTime? addedAt,
     DateTime? lastReadAt,
+    int? navigationDataVersion,
+    NavigationRebuildState? navigationRebuildState,
+    DateTime? navigationRebuildFailedAt,
   }) {
     return Book(
       id: id ?? this.id,
@@ -38,8 +52,17 @@ class Book {
       totalChapters: totalChapters ?? this.totalChapters,
       addedAt: addedAt ?? this.addedAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
+      navigationDataVersion: navigationDataVersion ?? this.navigationDataVersion,
+      navigationRebuildState:
+          navigationRebuildState ?? this.navigationRebuildState,
+      navigationRebuildFailedAt:
+          navigationRebuildFailedAt ?? this.navigationRebuildFailedAt,
     );
   }
+
+  bool get usesV2Navigation =>
+      navigationDataVersion == v2NavigationDataVersion &&
+      navigationRebuildState == NavigationRebuildState.ready;
 
   Map<String, dynamic> toMap() {
     return {
@@ -51,6 +74,10 @@ class Book {
       'total_chapters': totalChapters,
       'added_at': addedAt.millisecondsSinceEpoch,
       'last_read_at': lastReadAt?.millisecondsSinceEpoch,
+      'navigation_data_version': navigationDataVersion,
+      'navigation_rebuild_state': navigationRebuildState.dbValue,
+      'navigation_rebuild_failed_at':
+          navigationRebuildFailedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -65,6 +92,16 @@ class Book {
       addedAt: DateTime.fromMillisecondsSinceEpoch(map['added_at'] as int),
       lastReadAt: map['last_read_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_read_at'] as int)
+          : null,
+      navigationDataVersion:
+          (map['navigation_data_version'] as int?) ?? legacyNavigationDataVersion,
+      navigationRebuildState: NavigationRebuildState.fromDbValue(
+        map['navigation_rebuild_state'] as String?,
+      ),
+      navigationRebuildFailedAt: map['navigation_rebuild_failed_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              map['navigation_rebuild_failed_at'] as int,
+            )
           : null,
     );
   }
