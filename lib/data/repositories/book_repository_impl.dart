@@ -31,9 +31,7 @@ class BookRepositoryImpl implements BookRepository {
   @override
   Future<Book?> getBookById(String id) async {
     final db = await AppDatabase.database;
-    final maps = await db.query('books', where: 'id = ?', whereArgs: [id]);
-    if (maps.isEmpty) return null;
-    return Book.fromMap(maps.first);
+    return _getBookByIdFromExecutor(db, id);
   }
 
   @override
@@ -276,6 +274,46 @@ class BookRepositoryImpl implements BookRepository {
   }
 
   @override
+  Future<void> saveReadingProgressV2(ReadingProgressV2 progress) async {
+    final db = await AppDatabase.database;
+    final normalizedProgress = ReadingProgressV2(
+      bookId: progress.bookId,
+      documentIndex: progress.documentIndex,
+      documentProgress: progress.documentProgress.clamp(0.0, 1.0).toDouble(),
+      tocItemId: progress.tocItemId,
+      anchor: progress.anchor,
+      updatedAt: progress.updatedAt,
+    );
+
+    await db.transaction((txn) async {
+      final book = await _getBookByIdFromExecutor(txn, progress.bookId);
+      if (book == null || !book.usesV2Navigation) {
+        return;
+      }
+
+      await _validatePersistedProgressV2(
+        txn,
+        bookId: progress.bookId,
+        progress: normalizedProgress,
+      );
+
+      final updatedRows = await txn.update(
+        'reading_progress_v2',
+        normalizedProgress.toMap(),
+        where: 'book_id = ?',
+        whereArgs: [progress.bookId],
+      );
+      if (updatedRows == 1) {
+        return;
+      }
+
+      throw StateError(
+        'Missing V2 reading progress row while saving progress for ${progress.bookId}.',
+      );
+    });
+  }
+
+  @override
   Future<void> saveNavigationDataV2Ready({
     required String bookId,
     required List<ReaderDocument> documents,
@@ -465,6 +503,88 @@ class BookRepositoryImpl implements BookRepository {
       anchor: progress.anchor,
       updatedAt: progress.updatedAt,
     );
+  }
+
+  Future<Book?> _getBookByIdFromExecutor(
+    DatabaseExecutor executor,
+    String id,
+  ) async {
+    final maps = await executor.query(
+      'books',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) {
+      return null;
+    }
+    return Book.fromMap(maps.first);
+  }
+
+  Future<void> _validatePersistedProgressV2(
+    DatabaseExecutor executor, {
+    required String bookId,
+    required ReadingProgressV2 progress,
+  }) async {
+    final documentCount =
+        Sqflite.firstIntValue(
+          await executor.rawQuery(
+            'SELECT COUNT(*) FROM reader_documents WHERE book_id = ?',
+            [bookId],
+          ),
+        ) ??
+        0;
+    if (documentCount <= 0) {
+      throw StateError(
+        'Missing reader documents while saving V2 progress for $bookId.',
+      );
+    }
+    if (progress.documentIndex < 0 || progress.documentIndex >= documentCount) {
+      throw RangeError.range(
+        progress.documentIndex,
+        0,
+        documentCount - 1,
+        'documentIndex',
+      );
+    }
+
+    final documentRows = await executor.query(
+      'reader_documents',
+      columns: const ['document_index'],
+      where: 'book_id = ? AND document_index = ?',
+      whereArgs: [bookId, progress.documentIndex],
+      limit: 1,
+    );
+    if (documentRows.isEmpty) {
+      throw StateError(
+        'Missing reader document at index ${progress.documentIndex} while saving V2 progress for $bookId.',
+      );
+    }
+
+    final tocItemId = progress.tocItemId;
+    if (tocItemId == null) {
+      return;
+    }
+
+    final tocRows = await executor.query(
+      'toc_items',
+      columns: const ['target_document_index'],
+      where: 'book_id = ? AND id = ?',
+      whereArgs: [bookId, tocItemId],
+      limit: 1,
+    );
+    if (tocRows.isEmpty) {
+      throw ArgumentError(
+        'ReadingProgressV2.tocItemId must reference an existing TOC item for book $bookId.',
+      );
+    }
+
+    final targetDocumentIndex = tocRows.first['target_document_index'] as int?;
+    if (targetDocumentIndex != null &&
+        targetDocumentIndex != progress.documentIndex) {
+      throw ArgumentError(
+        'ReadingProgressV2.tocItemId must point to the same documentIndex when the TOC item is directly mappable.',
+      );
+    }
   }
 
   Map<int, ReaderDocument> _validateReaderDocuments(

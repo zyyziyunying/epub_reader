@@ -17,10 +17,7 @@ class EmptyLibraryView extends StatelessWidget {
             color: theme.colorScheme.outline,
           ),
           const SizedBox(height: 24),
-          Text(
-            'Your library is empty',
-            style: theme.textTheme.headlineSmall,
-          ),
+          Text('Your library is empty', style: theme.textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
             'Import an EPUB file to get started',

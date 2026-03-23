@@ -30,6 +30,11 @@ abstract class BookRepository {
   Future<List<ReaderDocument>> getReaderDocumentsByBookId(String bookId);
   Future<List<TocItem>> getTocItemsByBookId(String bookId);
   Future<ReadingProgressV2?> getReadingProgressV2(String bookId);
+
+  /// Persists V2 progress only for books whose navigation data is currently
+  /// `ready`; invalid `documentIndex` or `tocItemId` references for the active
+  /// V2 payload are rejected instead of being written.
+  Future<void> saveReadingProgressV2(ReadingProgressV2 progress);
   Future<void> saveNavigationDataV2Ready({
     required String bookId,
     required List<ReaderDocument> documents,

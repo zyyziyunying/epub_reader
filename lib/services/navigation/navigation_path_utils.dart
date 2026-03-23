@@ -33,7 +33,9 @@ class NavigationPathUtils {
     }
 
     final slashIndex = normalized.lastIndexOf('/');
-    final name = slashIndex >= 0 ? normalized.substring(slashIndex + 1) : normalized;
+    final name = slashIndex >= 0
+        ? normalized.substring(slashIndex + 1)
+        : normalized;
     final dotIndex = name.lastIndexOf('.');
     if (dotIndex <= 0) {
       return name;

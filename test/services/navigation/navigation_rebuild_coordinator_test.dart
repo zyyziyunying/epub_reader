@@ -14,6 +14,7 @@ import 'package:epub_reader/services/navigation/navigation_rebuild_coordinator.d
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+//TODO 拆分
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -132,6 +133,231 @@ void main() {
       expect(repository.events, isEmpty);
       expect(parserService.calledBookIds, isEmpty);
     });
+
+    test(
+      'best-effort maps legacy reading progress into V2 ready progress',
+      () async {
+        const bookId = 'book-progress-map';
+        final repository = _FakeBookRepository(
+          book: _book(
+            bookId,
+            navigationRebuildState: NavigationRebuildState.legacyPending,
+          ),
+          chapters: [
+            Chapter(
+              id: '$bookId:chapter:0',
+              bookId: bookId,
+              index: 0,
+              title: 'Legacy Chapter',
+              content: '<html><body>Matched document</body></html>',
+            ),
+          ],
+          legacyProgress: ReadingProgress(
+            bookId: bookId,
+            chapterIndex: 0,
+            scrollPosition: 0.65,
+            updatedAt: DateTime.utc(2026, 3, 22, 8),
+          ),
+        );
+        final parserService = _FakeEpubParserService(
+          navigationResult: NavigationBuildResult(
+            documents: [
+              ReaderDocument(
+                id: '$bookId:doc:0',
+                bookId: bookId,
+                documentIndex: 0,
+                fileName: 'OPS/Text/ch1.xhtml',
+                title: 'Chapter 1',
+                htmlContent: '<html><body>Other document</body></html>',
+              ),
+              ReaderDocument(
+                id: '$bookId:doc:1',
+                bookId: bookId,
+                documentIndex: 1,
+                fileName: 'OPS/Text/ch2.xhtml',
+                title: 'Chapter 2',
+                htmlContent: '<html><body>Matched document</body></html>',
+              ),
+            ],
+            tocItems: [
+              TocItem(
+                id: '$bookId:toc:0',
+                bookId: bookId,
+                title: 'Chapter 1',
+                order: 0,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Text/ch1.xhtml',
+                anchor: null,
+                targetDocumentIndex: 0,
+              ),
+              TocItem(
+                id: '$bookId:toc:1',
+                bookId: bookId,
+                title: 'Chapter 2',
+                order: 1,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Text/ch2.xhtml',
+                anchor: null,
+                targetDocumentIndex: 1,
+              ),
+            ],
+            navItems: const [],
+            hasPhase2OnlyToc: false,
+            usedSpineOrder: true,
+          ),
+        );
+        final coordinator = NavigationRebuildCoordinator(
+          repository: repository,
+          parserService: parserService,
+        );
+
+        final dataSource = await coordinator.resolveDataSourceForSession(
+          bookId,
+        );
+        await coordinator.waitForActiveRebuild(bookId);
+
+        expect(dataSource, BookReadingDataSource.legacy);
+        expect(repository.savedInitialProgress, isNotNull);
+        expect(repository.savedInitialProgress!.documentIndex, 1);
+        expect(repository.savedInitialProgress!.documentProgress, 0.65);
+        expect(
+          repository.savedInitialProgress!.updatedAt,
+          DateTime.utc(2026, 3, 22, 8),
+        );
+      },
+    );
+
+    for (final scenario in [
+      (
+        description: 'still reaches ready when legacy progress is missing',
+        repository: _FakeBookRepository(
+          book: _book(
+            'book-progress-missing',
+            navigationRebuildState: NavigationRebuildState.legacyPending,
+          ),
+        ),
+        parserService: _FakeEpubParserService(),
+      ),
+      (
+        description: 'still reaches ready when legacy progress mapping misses',
+        repository: _FakeBookRepository(
+          book: _book(
+            'book-progress-miss',
+            navigationRebuildState: NavigationRebuildState.legacyPending,
+          ),
+          chapters: [
+            Chapter(
+              id: 'book-progress-miss:chapter:0',
+              bookId: 'book-progress-miss',
+              index: 0,
+              title: 'Legacy Chapter',
+              content: '<html><body>Unmatched document</body></html>',
+            ),
+          ],
+          legacyProgress: ReadingProgress(
+            bookId: 'book-progress-miss',
+            chapterIndex: 0,
+            scrollPosition: 0.45,
+            updatedAt: DateTime.utc(2026, 3, 22, 9),
+          ),
+        ),
+        parserService: _FakeEpubParserService(),
+      ),
+      (
+        description: 'still reaches ready when legacy progress mapping is ambiguous',
+        repository: _FakeBookRepository(
+          book: _book(
+            'book-progress-ambiguous',
+            navigationRebuildState: NavigationRebuildState.legacyPending,
+          ),
+          chapters: [
+            Chapter(
+              id: 'book-progress-ambiguous:chapter:0',
+              bookId: 'book-progress-ambiguous',
+              index: 0,
+              title: 'Legacy Chapter',
+              content: '<html><body>Duplicate document</body></html>',
+            ),
+          ],
+          legacyProgress: ReadingProgress(
+            bookId: 'book-progress-ambiguous',
+            chapterIndex: 0,
+            scrollPosition: 0.45,
+            updatedAt: DateTime.utc(2026, 3, 22, 10),
+          ),
+        ),
+        parserService: _FakeEpubParserService(
+          navigationResult: NavigationBuildResult(
+            documents: [
+              ReaderDocument(
+                id: 'book-progress-ambiguous:doc:0',
+                bookId: 'book-progress-ambiguous',
+                documentIndex: 0,
+                fileName: 'OPS/Text/ch1.xhtml',
+                title: 'Chapter 1',
+                htmlContent: '<html><body>Duplicate document</body></html>',
+              ),
+              ReaderDocument(
+                id: 'book-progress-ambiguous:doc:1',
+                bookId: 'book-progress-ambiguous',
+                documentIndex: 1,
+                fileName: 'OPS/Text/ch2.xhtml',
+                title: 'Chapter 2',
+                htmlContent: '<html><body>Duplicate document</body></html>',
+              ),
+            ],
+            tocItems: [
+              TocItem(
+                id: 'book-progress-ambiguous:toc:0',
+                bookId: 'book-progress-ambiguous',
+                title: 'Chapter 1',
+                order: 0,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Text/ch1.xhtml',
+                anchor: null,
+                targetDocumentIndex: 0,
+              ),
+              TocItem(
+                id: 'book-progress-ambiguous:toc:1',
+                bookId: 'book-progress-ambiguous',
+                title: 'Chapter 2',
+                order: 1,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Text/ch2.xhtml',
+                anchor: null,
+                targetDocumentIndex: 1,
+              ),
+            ],
+            navItems: const [],
+            hasPhase2OnlyToc: false,
+            usedSpineOrder: true,
+          ),
+        ),
+      ),
+    ]) {
+      test(scenario.description, () async {
+        final coordinator = NavigationRebuildCoordinator(
+          repository: scenario.repository,
+          parserService: scenario.parserService,
+        );
+        final bookId = scenario.repository.book!.id;
+
+        final dataSource = await coordinator.resolveDataSourceForSession(bookId);
+        await coordinator.waitForActiveRebuild(bookId);
+
+        expect(dataSource, BookReadingDataSource.legacy);
+        expect(
+          scenario.repository.events,
+          orderedEquals(['mark:rebuilding', 'save:ready']),
+        );
+        expect(scenario.repository.savedInitialProgress, isNull);
+        expect(scenario.repository.book!.usesV2Navigation, isTrue);
+      });
+    }
   });
 
   group('bookReadingDataSourceProvider', () {
@@ -300,12 +526,19 @@ void main() {
 }
 
 class _FakeBookRepository implements BookRepository {
-  _FakeBookRepository({required this.book});
+  _FakeBookRepository({
+    required this.book,
+    this.chapters = const [],
+    this.legacyProgress,
+  });
 
   Book? book;
+  final List<Chapter> chapters;
+  final ReadingProgress? legacyProgress;
   List<ReaderDocument> documents = const [];
   List<TocItem> tocItems = const [];
   ReadingProgressV2? progress;
+  ReadingProgressV2? savedInitialProgress;
   final List<String> events = [];
 
   @override
@@ -336,6 +569,7 @@ class _FakeBookRepository implements BookRepository {
     events.add('save:ready');
     this.documents = documents;
     this.tocItems = tocItems;
+    savedInitialProgress = initialProgress;
     progress = initialProgress ?? ReadingProgressV2.initial(bookId);
     book = book!.copyWith(
       navigationDataVersion: Book.v2NavigationDataVersion,
@@ -379,13 +613,21 @@ class _FakeBookRepository implements BookRepository {
   }
 
   @override
-  Future<Chapter?> getChapter(String bookId, int index) {
-    throw UnimplementedError();
+  Future<Chapter?> getChapter(String bookId, int index) async {
+    for (final chapter in chapters) {
+      if (chapter.bookId == bookId && chapter.index == index) {
+        return chapter;
+      }
+    }
+    return null;
   }
 
   @override
-  Future<ReadingProgress?> getReadingProgress(String bookId) {
-    throw UnimplementedError();
+  Future<ReadingProgress?> getReadingProgress(String bookId) async {
+    if (legacyProgress?.bookId != bookId) {
+      return null;
+    }
+    return legacyProgress;
   }
 
   @override
@@ -435,6 +677,11 @@ class _FakeBookRepository implements BookRepository {
   }
 
   @override
+  Future<void> saveReadingProgressV2(ReadingProgressV2 progress) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<void> updateBook(Book book) {
     throw UnimplementedError();
   }
@@ -454,10 +701,12 @@ class _FakeEpubParserService extends EpubParserService {
   _FakeEpubParserService({
     this.shouldThrow = false,
     this.throwOnCalls = const <int>{},
+    this.navigationResult,
   });
 
   final bool shouldThrow;
   final Set<int> throwOnCalls;
+  final NavigationBuildResult? navigationResult;
   final List<String> calledBookIds = [];
   int _callCount = 0;
 
@@ -471,34 +720,35 @@ class _FakeEpubParserService extends EpubParserService {
     if (shouldThrow || throwOnCalls.contains(_callCount)) {
       throw Exception('forced parse failure');
     }
-    return NavigationBuildResult(
-      documents: [
-        ReaderDocument(
-          id: '$bookId:doc:0',
-          bookId: bookId,
-          documentIndex: 0,
-          fileName: 'OPS/Text/ch1.xhtml',
-          title: 'Chapter 1',
-          htmlContent: '<html><body>Chapter 1</body></html>',
-        ),
-      ],
-      tocItems: [
-        TocItem(
-          id: '$bookId:toc:0',
-          bookId: bookId,
-          title: 'Chapter 1',
-          order: 0,
-          depth: 0,
-          parentId: null,
-          fileName: 'OPS/Text/ch1.xhtml',
-          anchor: null,
-          targetDocumentIndex: 0,
-        ),
-      ],
-      navItems: const [],
-      hasPhase2OnlyToc: false,
-      usedSpineOrder: true,
-    );
+    return navigationResult ??
+        NavigationBuildResult(
+          documents: [
+            ReaderDocument(
+              id: '$bookId:doc:0',
+              bookId: bookId,
+              documentIndex: 0,
+              fileName: 'OPS/Text/ch1.xhtml',
+              title: 'Chapter 1',
+              htmlContent: '<html><body>Chapter 1</body></html>',
+            ),
+          ],
+          tocItems: [
+            TocItem(
+              id: '$bookId:toc:0',
+              bookId: bookId,
+              title: 'Chapter 1',
+              order: 0,
+              depth: 0,
+              parentId: null,
+              fileName: 'OPS/Text/ch1.xhtml',
+              anchor: null,
+              targetDocumentIndex: 0,
+            ),
+          ],
+          navItems: const [],
+          hasPhase2OnlyToc: false,
+          usedSpineOrder: true,
+        );
   }
 }
 

@@ -5,10 +5,7 @@ import '../../../../domain/entities/book.dart';
 class DeleteBookDialog extends StatelessWidget {
   final Book book;
 
-  const DeleteBookDialog({
-    super.key,
-    required this.book,
-  });
+  const DeleteBookDialog({super.key, required this.book});
 
   static Future<bool?> show(BuildContext context, Book book) {
     return showDialog<bool>(

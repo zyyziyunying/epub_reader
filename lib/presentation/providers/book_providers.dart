@@ -7,11 +7,15 @@ import '../../data/repositories/book_repository_impl.dart';
 import '../../domain/entities/book.dart';
 import '../../domain/entities/book_reading_data_source.dart';
 import '../../domain/entities/chapter.dart';
+import '../../domain/entities/document_nav_item.dart';
 import '../../domain/entities/navigation_rebuild_state.dart';
+import '../../domain/entities/reading_progress_v2.dart';
+import '../../domain/entities/reader_document.dart';
 import '../../domain/entities/reading_settings.dart';
 import '../../domain/repositories/book_repository.dart';
 import '../../services/epub_parser_service.dart';
 import '../../services/file_service.dart';
+import '../../services/navigation/document_navigation.dart';
 import '../../services/navigation/navigation_rebuild_coordinator.dart';
 
 // Services
@@ -51,6 +55,39 @@ final bookReadingDataSourceProvider = FutureProvider.autoDispose
       } catch (_) {
         return BookReadingDataSource.legacy;
       }
+    });
+
+class ReaderNavigationData {
+  const ReaderNavigationData({
+    required this.documents,
+    required this.navItems,
+    required this.hasPhase2OnlyToc,
+  });
+
+  final List<ReaderDocument> documents;
+  final List<DocumentNavItem> navItems;
+  final bool hasPhase2OnlyToc;
+}
+
+final readerNavigationDataProvider =
+    FutureProvider.family<ReaderNavigationData, String>((ref, bookId) async {
+      final repository = ref.watch(bookRepositoryProvider);
+      final documents = await repository.getReaderDocumentsByBookId(bookId);
+      final tocItems = await repository.getTocItemsByBookId(bookId);
+      return ReaderNavigationData(
+        documents: documents,
+        navItems: buildDocumentNavItems(
+          documents: documents,
+          tocItems: tocItems,
+        ),
+        hasPhase2OnlyToc: hasPhase2OnlyToc(tocItems),
+      );
+    });
+
+final readerInitialProgressV2Provider = FutureProvider.autoDispose
+    .family<ReadingProgressV2?, BookReadingSessionKey>((ref, session) async {
+      final repository = ref.watch(bookRepositoryProvider);
+      return repository.getReadingProgressV2(session.bookId);
     });
 
 // 导入状态

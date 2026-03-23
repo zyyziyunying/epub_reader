@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+//TODO 拆分
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -161,6 +162,179 @@ void main() {
         expect(book!.navigationDataVersion, Book.legacyNavigationDataVersion);
         expect(book.navigationRebuildState, NavigationRebuildState.failed);
         expect(book.navigationRebuildFailedAt, failedAt);
+      },
+    );
+
+    test(
+      'updates V2 reading progress only while the book remains ready',
+      () async {
+        await repository.insertBook(_book(existingBookId));
+        await repository.saveNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: _documents(existingBookId),
+          tocItems: _tocItems(existingBookId),
+        );
+
+        await repository.saveReadingProgressV2(
+          _progress(existingBookId, documentIndex: 1, documentProgress: 1.4),
+        );
+
+        var progress = await repository.getReadingProgressV2(existingBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 1);
+        expect(progress.documentProgress, 1.0);
+
+        await repository.markNavigationRebuildInProgress(existingBookId);
+        await repository.saveReadingProgressV2(
+          _progress(existingBookId, documentIndex: 0, documentProgress: 0.2),
+        );
+
+        final db = await AppDatabase.database;
+        final rows = await db.query(
+          'reading_progress_v2',
+          where: 'book_id = ?',
+          whereArgs: [existingBookId],
+        );
+        expect(rows, hasLength(1));
+
+        progress = ReadingProgressV2.fromMap(rows.single);
+        expect(progress.documentIndex, 1);
+        expect(progress.documentProgress, 1.0);
+      },
+    );
+
+    test(
+      'rejects V2 progress saves with an out-of-range documentIndex',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.3,
+            tocItemId: '$existingBookId:toc_item:1',
+          ),
+        );
+
+        await expectLater(
+          repository.saveReadingProgressV2(
+            _progress(
+              existingBookId,
+              documentIndex: 2,
+              documentProgress: 0.8,
+              tocItemId: '$existingBookId:toc_item:1',
+            ),
+          ),
+          throwsRangeError,
+        );
+
+        final progress = await _loadStoredProgress(repository, existingBookId);
+        expect(progress.documentIndex, 1);
+        expect(progress.documentProgress, 0.3);
+        expect(progress.tocItemId, '$existingBookId:toc_item:1');
+      },
+    );
+
+    test('rejects V2 progress saves with an unknown tocItemId', () async {
+      await _seedReadyNavigationData(
+        repository,
+        existingBookId,
+        initialProgress: _progress(
+          existingBookId,
+          documentIndex: 0,
+          documentProgress: 0.25,
+          tocItemId: '$existingBookId:toc_item:0',
+        ),
+      );
+
+      await expectLater(
+        repository.saveReadingProgressV2(
+          _progress(
+            existingBookId,
+            documentIndex: 0,
+            documentProgress: 0.8,
+            tocItemId: '$existingBookId:toc_item:missing',
+          ),
+        ),
+        throwsArgumentError,
+      );
+
+      final progress = await _loadStoredProgress(repository, existingBookId);
+      expect(progress.documentIndex, 0);
+      expect(progress.documentProgress, 0.25);
+      expect(progress.tocItemId, '$existingBookId:toc_item:0');
+    });
+
+    test(
+      'rejects V2 progress saves when tocItem targetDocumentIndex does not match',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 0,
+            documentProgress: 0.2,
+            tocItemId: '$existingBookId:toc_item:0',
+          ),
+        );
+
+        await expectLater(
+          repository.saveReadingProgressV2(
+            _progress(
+              existingBookId,
+              documentIndex: 0,
+              documentProgress: 0.8,
+              tocItemId: '$existingBookId:toc_item:1',
+            ),
+          ),
+          throwsArgumentError,
+        );
+
+        final progress = await _loadStoredProgress(repository, existingBookId);
+        expect(progress.documentIndex, 0);
+        expect(progress.documentProgress, 0.2);
+        expect(progress.tocItemId, '$existingBookId:toc_item:0');
+      },
+    );
+
+    test(
+      'skips invalid V2 progress writes after the book leaves ready',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.4,
+            tocItemId: '$existingBookId:toc_item:1',
+          ),
+        );
+        await repository.markNavigationRebuildInProgress(existingBookId);
+
+        await repository.saveReadingProgressV2(
+          _progress(
+            existingBookId,
+            documentIndex: 99,
+            documentProgress: 0.8,
+            tocItemId: '$existingBookId:toc_item:missing',
+          ),
+        );
+
+        final db = await AppDatabase.database;
+        final rows = await db.query(
+          'reading_progress_v2',
+          where: 'book_id = ?',
+          whereArgs: [existingBookId],
+        );
+        expect(rows, hasLength(1));
+
+        final progress = ReadingProgressV2.fromMap(rows.single);
+        expect(progress.documentIndex, 1);
+        expect(progress.documentProgress, 0.4);
+        expect(progress.tocItemId, '$existingBookId:toc_item:1');
       },
     );
 
@@ -536,6 +710,29 @@ Future<int> _countRows(String tableName, String bookId) async {
     whereArgs: [bookId],
   );
   return rows.length;
+}
+
+Future<void> _seedReadyNavigationData(
+  BookRepositoryImpl repository,
+  String bookId, {
+  ReadingProgressV2? initialProgress,
+}) async {
+  await repository.insertBook(_book(bookId));
+  await repository.saveNavigationDataV2Ready(
+    bookId: bookId,
+    documents: _documents(bookId),
+    tocItems: _tocItems(bookId),
+    initialProgress: initialProgress,
+  );
+}
+
+Future<ReadingProgressV2> _loadStoredProgress(
+  BookRepositoryImpl repository,
+  String bookId,
+) async {
+  final progress = await repository.getReadingProgressV2(bookId);
+  expect(progress, isNotNull);
+  return progress!;
 }
 
 Book _book(String id) {

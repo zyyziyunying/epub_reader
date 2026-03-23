@@ -22,7 +22,10 @@ class EpubParserService {
   }
 
   /// 从字节数据解析 EPUB
-  Future<ParsedEpub> parseFromBytes(Uint8List bytes, {String? fallbackTitle}) async {
+  Future<ParsedEpub> parseFromBytes(
+    Uint8List bytes, {
+    String? fallbackTitle,
+  }) async {
     final epubBook = await EpubReader.readBook(bytes);
 
     // 如果 EPUB 的 title 为空，使用 fallbackTitle 或默认值
@@ -35,7 +38,9 @@ class EpubParserService {
 
     return ParsedEpub(
       title: title,
-      author: (epubBook.Author?.trim().isEmpty ?? true) ? '佚名' : epubBook.Author!.trim(),
+      author: (epubBook.Author?.trim().isEmpty ?? true)
+          ? '佚名'
+          : epubBook.Author!.trim(),
       coverImage: _extractCoverImage(epubBook),
       chapters: _extractChapters(epubBook),
     );

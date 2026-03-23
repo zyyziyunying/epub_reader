@@ -52,7 +52,8 @@ class Book {
       totalChapters: totalChapters ?? this.totalChapters,
       addedAt: addedAt ?? this.addedAt,
       lastReadAt: lastReadAt ?? this.lastReadAt,
-      navigationDataVersion: navigationDataVersion ?? this.navigationDataVersion,
+      navigationDataVersion:
+          navigationDataVersion ?? this.navigationDataVersion,
       navigationRebuildState:
           navigationRebuildState ?? this.navigationRebuildState,
       navigationRebuildFailedAt:
@@ -94,7 +95,8 @@ class Book {
           ? DateTime.fromMillisecondsSinceEpoch(map['last_read_at'] as int)
           : null,
       navigationDataVersion:
-          (map['navigation_data_version'] as int?) ?? legacyNavigationDataVersion,
+          (map['navigation_data_version'] as int?) ??
+          legacyNavigationDataVersion,
       navigationRebuildState: NavigationRebuildState.fromDbValue(
         map['navigation_rebuild_state'] as String?,
       ),

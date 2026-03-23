@@ -22,10 +22,7 @@ void main() {
       final log = AppLogger('TestModule');
       final error = Exception('Test error');
 
-      expect(
-        () => log.error('Error occurred', error: error),
-        returnsNormally,
-      );
+      expect(() => log.error('Error occurred', error: error), returnsNormally);
     });
 
     test('应该能够输出带堆栈跟踪的日志', () {

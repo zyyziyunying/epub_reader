@@ -1,5 +1,7 @@
 import '../../domain/entities/book_reading_data_source.dart';
 import '../../domain/entities/navigation_rebuild_state.dart';
+import '../../domain/entities/reader_document.dart';
+import '../../domain/entities/reading_progress_v2.dart';
 import '../../domain/repositories/book_repository.dart';
 import '../epub_parser_service.dart';
 
@@ -60,10 +62,15 @@ class NavigationRebuildCoordinator {
         book.filePath,
         bookId: bookId,
       );
+      final initialProgress = await _mapLegacyProgressToV2(
+        bookId: bookId,
+        documents: navigationData.documents,
+      );
       await _repository.saveNavigationDataV2Ready(
         bookId: bookId,
         documents: navigationData.documents,
         tocItems: navigationData.tocItems,
+        initialProgress: initialProgress,
       );
     } catch (_) {
       try {
@@ -73,5 +80,41 @@ class NavigationRebuildCoordinator {
         );
       } catch (_) {}
     }
+  }
+
+  Future<ReadingProgressV2?> _mapLegacyProgressToV2({
+    required String bookId,
+    required List<ReaderDocument> documents,
+  }) async {
+    final legacyProgress = await _repository.getReadingProgress(bookId);
+    if (legacyProgress == null) {
+      return null;
+    }
+
+    final legacyChapter = await _repository.getChapter(
+      bookId,
+      legacyProgress.chapterIndex,
+    );
+    if (legacyChapter == null) {
+      return null;
+    }
+
+    final matches = documents
+        .where((document) => document.htmlContent == legacyChapter.content)
+        .toList();
+    if (matches.length != 1) {
+      return null;
+    }
+
+    return ReadingProgressV2(
+      bookId: bookId,
+      documentIndex: matches.single.documentIndex,
+      documentProgress: legacyProgress.scrollPosition
+          .clamp(0.0, 1.0)
+          .toDouble(),
+      tocItemId: null,
+      anchor: null,
+      updatedAt: legacyProgress.updatedAt,
+    );
   }
 }

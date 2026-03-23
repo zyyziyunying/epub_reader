@@ -35,10 +35,7 @@ class AppLogger {
   ///
   /// [module] 模块名称，将显示为 [ModuleName] 前缀
   /// [enableColors] 是否启用 ANSI 颜色，默认在 Debug 模式下启用
-  AppLogger(
-    this.module, {
-    this.enableColors = kDebugMode,
-  });
+  AppLogger(this.module, {this.enableColors = kDebugMode});
 
   /// 输出 Debug 级别日志
   void debug(String message) {

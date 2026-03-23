@@ -60,10 +60,10 @@ class LibraryScreen extends ConsumerWidget {
         final crossAxisCount = constraints.maxWidth > 900
             ? 5
             : constraints.maxWidth > 600
-                ? 4
-                : constraints.maxWidth > 400
-                    ? 3
-                    : 2;
+            ? 4
+            : constraints.maxWidth > 400
+            ? 3
+            : 2;
 
         return GridView.builder(
           padding: const EdgeInsets.all(16),
@@ -91,20 +91,21 @@ class LibraryScreen extends ConsumerWidget {
     final book = await importBook();
 
     if (book != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Imported: ${book.title}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imported: ${book.title}')));
     }
   }
 
   void _openBook(BuildContext context, Book book) {
-    NavigatorManager.pushNamed(
-      AppRoutes.readerName,
-      extra: book,
-    );
+    NavigatorManager.pushNamed(AppRoutes.readerName, extra: book);
   }
 
-  Future<void> _deleteBook(BuildContext context, WidgetRef ref, Book book) async {
+  Future<void> _deleteBook(
+    BuildContext context,
+    WidgetRef ref,
+    Book book,
+  ) async {
     final confirmed = await DeleteBookDialog.show(context, book);
 
     if (confirmed == true) {
@@ -112,9 +113,9 @@ class LibraryScreen extends ConsumerWidget {
       await deleteBook(book);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deleted: ${book.title}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Deleted: ${book.title}')));
       }
     }
   }

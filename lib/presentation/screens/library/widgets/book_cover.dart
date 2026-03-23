@@ -5,10 +5,7 @@ import 'package:flutter/material.dart';
 class BookCover extends StatelessWidget {
   final String? coverPath;
 
-  const BookCover({
-    super.key,
-    this.coverPath,
-  });
+  const BookCover({super.key, this.coverPath});
 
   @override
   Widget build(BuildContext context) {

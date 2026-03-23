@@ -30,7 +30,9 @@ class ReaderSettingsSheet extends ConsumerWidget {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.5),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outline.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -38,9 +40,9 @@ class ReaderSettingsSheet extends ConsumerWidget {
               const SizedBox(height: 20),
               Text(
                 'Reading Settings',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 24),
 
@@ -164,10 +166,7 @@ class ReaderSettingsSheet extends ConsumerWidget {
         const SizedBox(width: 12),
         SizedBox(
           width: 100,
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
+          child: Text(label, style: Theme.of(context).textTheme.bodyLarge),
         ),
         child,
       ],

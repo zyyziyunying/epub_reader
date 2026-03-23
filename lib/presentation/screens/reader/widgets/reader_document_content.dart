@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 
-import '../../../../domain/entities/chapter.dart';
+import '../../../../domain/entities/reader_document.dart';
 import '../../../../domain/entities/reading_settings.dart';
 
-class ChapterContent extends StatelessWidget {
-  final Chapter chapter;
-  final ReadingSettings settings;
-
-  const ChapterContent({
+class ReaderDocumentContent extends StatelessWidget {
+  const ReaderDocumentContent({
     super.key,
-    required this.chapter,
+    required this.document,
     required this.settings,
+    required this.showDivider,
   });
+
+  final ReaderDocument document;
+  final ReadingSettings settings;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
@@ -25,11 +27,10 @@ class ChapterContent extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 章节标题
           Padding(
-            padding: const EdgeInsets.only(bottom: 24.0, top: 16.0),
+            padding: const EdgeInsets.only(bottom: 24, top: 16),
             child: Text(
-              chapter.title,
+              document.title,
               style: TextStyle(
                 fontSize: settings.fontSize * 1.3,
                 fontWeight: FontWeight.bold,
@@ -40,9 +41,8 @@ class ChapterContent extends StatelessWidget {
               ),
             ),
           ),
-          // 章节内容
           Html(
-            data: chapter.content,
+            data: document.htmlContent,
             style: {
               'body': Style(
                 fontSize: FontSize(settings.fontSize),
@@ -105,14 +105,14 @@ class ChapterContent extends StatelessWidget {
               ),
             },
           ),
-          // 章节分隔线
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32.0),
-            child: Divider(
-              color: settings.textColor.withValues(alpha: 0.2),
-              thickness: 1,
+          if (showDivider)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Divider(
+                color: settings.textColor.withValues(alpha: 0.2),
+                thickness: 1,
+              ),
             ),
-          ),
         ],
       ),
     );

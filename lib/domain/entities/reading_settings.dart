@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum ReaderTheme {
-  light,
-  dark,
-  sepia,
-}
+enum ReaderTheme { light, dark, sepia }
 
 class ReadingSettings {
   final double fontSize;
