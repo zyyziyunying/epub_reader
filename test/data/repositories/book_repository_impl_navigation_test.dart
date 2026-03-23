@@ -164,6 +164,96 @@ void main() {
       },
     );
 
+    test('markNavigationRebuildInProgress keeps V2 unreadable', () async {
+      await repository.insertBook(_book(existingBookId));
+      await repository.saveNavigationDataV2Ready(
+        bookId: existingBookId,
+        documents: _documents(existingBookId),
+        tocItems: _tocItems(existingBookId),
+      );
+
+      await repository.markNavigationRebuildInProgress(existingBookId);
+
+      final book = await repository.getBookById(existingBookId);
+      expect(book, isNotNull);
+      expect(book!.navigationDataVersion, Book.legacyNavigationDataVersion);
+      expect(book.navigationRebuildState, NavigationRebuildState.rebuilding);
+      expect(book.navigationRebuildFailedAt, isNull);
+      expect(
+        await repository.getBookReadingDataSource(existingBookId),
+        BookReadingDataSource.legacy,
+      );
+      expect(
+        await repository.getReaderDocumentsByBookId(existingBookId),
+        isEmpty,
+      );
+      expect(await repository.getTocItemsByBookId(existingBookId), isEmpty);
+      expect(await repository.getReadingProgressV2(existingBookId), isNull);
+    });
+
+    test(
+      'blocks stale V2 row reads when rebuild starts right before the row query',
+      () async {
+        await repository.insertBook(_book(existingBookId));
+        await repository.saveNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: _documents(existingBookId),
+          tocItems: _tocItems(existingBookId),
+        );
+
+        Future<void> expectReadBlockedDuringInterleaving<T>(
+          Future<T> Function(BookRepositoryImpl repository) read,
+          Matcher matcher,
+        ) async {
+          var triggered = false;
+          late final BookRepositoryImpl raceRepository;
+          raceRepository = BookRepositoryImpl(
+            beforeNavigationV2ReadQuery: (bookId) async {
+              if (triggered) {
+                return;
+              }
+              triggered = true;
+              await raceRepository.markNavigationRebuildInProgress(bookId);
+            },
+          );
+
+          final result = await read(raceRepository);
+          expect(result, matcher);
+
+          final book = await repository.getBookById(existingBookId);
+          expect(book, isNotNull);
+          expect(book!.navigationDataVersion, Book.legacyNavigationDataVersion);
+          expect(
+            book.navigationRebuildState,
+            NavigationRebuildState.rebuilding,
+          );
+        }
+
+        await expectReadBlockedDuringInterleaving<List<ReaderDocument>>(
+          (raceRepository) =>
+              raceRepository.getReaderDocumentsByBookId(existingBookId),
+          isEmpty,
+        );
+        expect(await _countRows('reader_documents', existingBookId), 2);
+
+        await _forceBookReadyWithoutTouchingV2(existingBookId);
+        await expectReadBlockedDuringInterleaving<List<TocItem>>(
+          (raceRepository) =>
+              raceRepository.getTocItemsByBookId(existingBookId),
+          isEmpty,
+        );
+        expect(await _countRows('toc_items', existingBookId), 2);
+
+        await _forceBookReadyWithoutTouchingV2(existingBookId);
+        await expectReadBlockedDuringInterleaving<ReadingProgressV2?>(
+          (raceRepository) =>
+              raceRepository.getReadingProgressV2(existingBookId),
+          isNull,
+        );
+        expect(await _countRows('reading_progress_v2', existingBookId), 1);
+      },
+    );
+
     test(
       'imports new books directly as ready and keeps legacy chapters for compatibility',
       () async {
@@ -420,6 +510,32 @@ Future<void> _expectNoV2Rows(String bookId) async {
     );
     expect(rows, isEmpty, reason: 'Expected no rows in $tableName for $bookId');
   }
+}
+
+Future<void> _forceBookReadyWithoutTouchingV2(String bookId) async {
+  final db = await AppDatabase.database;
+  final updatedRows = await db.update(
+    'books',
+    {
+      'navigation_data_version': Book.v2NavigationDataVersion,
+      'navigation_rebuild_state': NavigationRebuildState.ready.dbValue,
+      'navigation_rebuild_failed_at': null,
+    },
+    where: 'id = ?',
+    whereArgs: [bookId],
+  );
+  expect(updatedRows, 1);
+}
+
+Future<int> _countRows(String tableName, String bookId) async {
+  final db = await AppDatabase.database;
+  final rows = await db.query(
+    tableName,
+    columns: ['book_id'],
+    where: 'book_id = ?',
+    whereArgs: [bookId],
+  );
+  return rows.length;
 }
 
 Book _book(String id) {

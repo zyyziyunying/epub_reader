@@ -36,6 +36,7 @@ abstract class BookRepository {
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
   });
+  Future<void> markNavigationRebuildInProgress(String bookId);
   Future<void> resetNavigationDataToLegacy(
     String bookId, {
     required NavigationRebuildState rebuildState,

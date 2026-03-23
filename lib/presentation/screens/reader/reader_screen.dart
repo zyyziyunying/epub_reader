@@ -24,6 +24,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   late ScrollController _scrollController;
   bool _showControls = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final Object _readingSessionToken = Object();
 
   @override
   void initState() {
@@ -42,6 +43,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(
+      bookReadingDataSourceProvider((
+        bookId: widget.book.id,
+        sessionToken: _readingSessionToken,
+      )),
+    );
     final chaptersAsync = ref.watch(chaptersProvider(widget.book.id));
     final settings = ref.watch(readingSettingsProvider);
 

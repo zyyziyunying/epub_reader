@@ -12,6 +12,12 @@ import '../../../domain/repositories/book_repository.dart';
 import '../datasources/local/database.dart';
 
 class BookRepositoryImpl implements BookRepository {
+  BookRepositoryImpl({
+    Future<void> Function(String bookId)? beforeNavigationV2ReadQuery,
+  }) : _beforeNavigationV2ReadQuery = beforeNavigationV2ReadQuery;
+
+  final Future<void> Function(String bookId)? _beforeNavigationV2ReadQuery;
+
   @override
   Future<List<Book>> getAllBooks() async {
     final db = await AppDatabase.database;
@@ -188,14 +194,26 @@ class BookRepositoryImpl implements BookRepository {
 
   @override
   Future<List<ReaderDocument>> getReaderDocumentsByBookId(String bookId) async {
-    if (!await _canReadV2(bookId)) {
-      return const [];
-    }
+    await _beforeNavigationV2ReadQuery?.call(bookId);
     final db = await AppDatabase.database;
     final maps = await db.query(
       'reader_documents',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
+      where: '''
+        book_id = ?
+        AND EXISTS (
+          SELECT 1
+          FROM books
+          WHERE id = ?
+            AND navigation_data_version = ?
+            AND navigation_rebuild_state = ?
+        )
+      ''',
+      whereArgs: [
+        bookId,
+        bookId,
+        Book.v2NavigationDataVersion,
+        NavigationRebuildState.ready.dbValue,
+      ],
       orderBy: 'document_index ASC',
     );
     return maps.map((map) => ReaderDocument.fromMap(map)).toList();
@@ -203,14 +221,26 @@ class BookRepositoryImpl implements BookRepository {
 
   @override
   Future<List<TocItem>> getTocItemsByBookId(String bookId) async {
-    if (!await _canReadV2(bookId)) {
-      return const [];
-    }
+    await _beforeNavigationV2ReadQuery?.call(bookId);
     final db = await AppDatabase.database;
     final maps = await db.query(
       'toc_items',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
+      where: '''
+        book_id = ?
+        AND EXISTS (
+          SELECT 1
+          FROM books
+          WHERE id = ?
+            AND navigation_data_version = ?
+            AND navigation_rebuild_state = ?
+        )
+      ''',
+      whereArgs: [
+        bookId,
+        bookId,
+        Book.v2NavigationDataVersion,
+        NavigationRebuildState.ready.dbValue,
+      ],
       orderBy: 'toc_order ASC',
     );
     return maps.map((map) => TocItem.fromMap(map)).toList();
@@ -218,14 +248,26 @@ class BookRepositoryImpl implements BookRepository {
 
   @override
   Future<ReadingProgressV2?> getReadingProgressV2(String bookId) async {
-    if (!await _canReadV2(bookId)) {
-      return null;
-    }
+    await _beforeNavigationV2ReadQuery?.call(bookId);
     final db = await AppDatabase.database;
     final maps = await db.query(
       'reading_progress_v2',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
+      where: '''
+        book_id = ?
+        AND EXISTS (
+          SELECT 1
+          FROM books
+          WHERE id = ?
+            AND navigation_data_version = ?
+            AND navigation_rebuild_state = ?
+        )
+      ''',
+      whereArgs: [
+        bookId,
+        bookId,
+        Book.v2NavigationDataVersion,
+        NavigationRebuildState.ready.dbValue,
+      ],
     );
     if (maps.isEmpty) {
       return null;
@@ -257,6 +299,26 @@ class BookRepositoryImpl implements BookRepository {
         progress: progress,
       );
     });
+  }
+
+  @override
+  Future<void> markNavigationRebuildInProgress(String bookId) async {
+    final db = await AppDatabase.database;
+    final updatedRows = await db.update(
+      'books',
+      {
+        'navigation_data_version': Book.legacyNavigationDataVersion,
+        'navigation_rebuild_state': NavigationRebuildState.rebuilding.dbValue,
+        'navigation_rebuild_failed_at': null,
+      },
+      where: 'id = ?',
+      whereArgs: [bookId],
+    );
+    if (updatedRows != 1) {
+      throw StateError(
+        'Book not found while marking rebuild in progress: $bookId',
+      );
+    }
   }
 
   @override
@@ -307,10 +369,6 @@ class BookRepositoryImpl implements BookRepository {
       where: 'id = ?',
       whereArgs: [bookId],
     );
-  }
-
-  Future<bool> _canReadV2(String bookId) async {
-    return (await getBookReadingDataSource(bookId)).usesV2;
   }
 
   ReadingProgressV2 _prepareNavigationDataV2Ready({

@@ -12,6 +12,7 @@ import '../../domain/entities/reading_settings.dart';
 import '../../domain/repositories/book_repository.dart';
 import '../../services/epub_parser_service.dart';
 import '../../services/file_service.dart';
+import '../../services/navigation/navigation_rebuild_coordinator.dart';
 
 // Services
 final fileServiceProvider = Provider<FileService>((ref) => FileService());
@@ -24,16 +25,32 @@ final bookRepositoryProvider = Provider<BookRepository>(
   (ref) => BookRepositoryImpl(),
 );
 
+final navigationRebuildCoordinatorProvider =
+    Provider<NavigationRebuildCoordinator>((ref) {
+      final repository = ref.watch(bookRepositoryProvider);
+      final parserService = ref.watch(epubParserServiceProvider);
+      return NavigationRebuildCoordinator(
+        repository: repository,
+        parserService: parserService,
+      );
+    });
+
 // 书库列表
 final libraryBooksProvider = FutureProvider<List<Book>>((ref) async {
   final repository = ref.watch(bookRepositoryProvider);
   return repository.getAllBooks();
 });
 
-final bookReadingDataSourceProvider =
-    FutureProvider.family<BookReadingDataSource, String>((ref, bookId) async {
-      final repository = ref.watch(bookRepositoryProvider);
-      return repository.getBookReadingDataSource(bookId);
+typedef BookReadingSessionKey = ({String bookId, Object sessionToken});
+
+final bookReadingDataSourceProvider = FutureProvider.autoDispose
+    .family<BookReadingDataSource, BookReadingSessionKey>((ref, session) async {
+      final coordinator = ref.watch(navigationRebuildCoordinatorProvider);
+      try {
+        return await coordinator.resolveDataSourceForSession(session.bookId);
+      } catch (_) {
+        return BookReadingDataSource.legacy;
+      }
     });
 
 // 导入状态
