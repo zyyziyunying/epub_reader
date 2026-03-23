@@ -146,28 +146,14 @@ final importBookProvider = Provider<Future<Book?> Function()>((ref) {
         author: parsedEpub.author,
         filePath: savedPath,
         coverPath: coverPath,
-        totalChapters: parsedEpub.chapters.length,
+        totalChapters: navigationData.documents.length,
         addedAt: DateTime.now(),
         navigationDataVersion: Book.v2NavigationDataVersion,
         navigationRebuildState: NavigationRebuildState.ready,
       );
 
-      // 保留 legacy chapters 仅用于当前阅读器 UI 的最小兼容。
-      final legacyChapters = parsedEpub.chapters
-          .map(
-            (parsed) => Chapter(
-              id: const Uuid().v4(),
-              bookId: bookId,
-              index: parsed.index,
-              title: parsed.title,
-              content: parsed.htmlContent,
-            ),
-          )
-          .toList();
-
       await repository.importBookWithNavigationDataV2Ready(
         book: book,
-        legacyChapters: legacyChapters,
         documents: navigationData.documents,
         tocItems: navigationData.tocItems,
       );
@@ -260,8 +246,8 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettings> {
 
 // ============ 阅读器相关 Providers ============
 
-// 当前书籍的章节列表
-final chaptersProvider = FutureProvider.family<List<Chapter>, String>((
+// 当前书籍的 legacy fallback 正文列表
+final legacyChaptersProvider = FutureProvider.family<List<Chapter>, String>((
   ref,
   bookId,
 ) async {

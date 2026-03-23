@@ -11,6 +11,7 @@ import '../../../domain/entities/toc_item.dart';
 import '../../../domain/repositories/book_repository.dart';
 import '../datasources/local/database.dart';
 
+//TODO 拆分
 class BookRepositoryImpl implements BookRepository {
   BookRepositoryImpl({
     Future<void> Function(String bookId)? beforeNavigationV2ReadQuery,
@@ -112,7 +113,6 @@ class BookRepositoryImpl implements BookRepository {
   @override
   Future<void> importBookWithNavigationDataV2Ready({
     required Book book,
-    required List<Chapter> legacyChapters,
     required List<ReaderDocument> documents,
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
@@ -123,7 +123,6 @@ class BookRepositoryImpl implements BookRepository {
       tocItems: tocItems,
       initialProgress: initialProgress,
     );
-    _validateLegacyChapters(book.id, legacyChapters);
 
     final db = await AppDatabase.database;
     final pendingBook = book.copyWith(
@@ -138,14 +137,6 @@ class BookRepositoryImpl implements BookRepository {
         pendingBook.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-
-      for (final chapter in legacyChapters) {
-        await txn.insert(
-          'chapters',
-          chapter.toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
 
       await _writeNavigationDataV2Ready(
         txn,
@@ -706,27 +697,6 @@ class BookRepositoryImpl implements BookRepository {
       throw ArgumentError(
         'ReadingProgressV2.tocItemId must point to the same documentIndex when the TOC item is directly mappable.',
       );
-    }
-  }
-
-  void _validateLegacyChapters(String bookId, List<Chapter> legacyChapters) {
-    final chapterIds = <String>{};
-    final chapterIndexes = <int>{};
-
-    for (final chapter in legacyChapters) {
-      if (chapter.bookId != bookId) {
-        throw ArgumentError('All legacy chapters must belong to book $bookId.');
-      }
-      if (!chapterIds.add(chapter.id)) {
-        throw ArgumentError(
-          'Chapter.id must be unique within imported book $bookId.',
-        );
-      }
-      if (!chapterIndexes.add(chapter.index)) {
-        throw ArgumentError(
-          'Chapter.index must be unique within imported book $bookId.',
-        );
-      }
     }
   }
 

@@ -1,16 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../../../../domain/entities/book.dart';
-import '../../../../domain/entities/chapter.dart';
 import '../../../../domain/entities/document_nav_item.dart';
 
 class ReaderDrawer extends StatelessWidget {
   const ReaderDrawer.legacy({
     super.key,
     required this.book,
-    required List<Chapter> chapters,
-  }) : _chapters = chapters,
-       _navItems = null,
+    this.legacyContentCount,
+  }) : _navItems = null,
        _currentDocumentIndex = null,
        _hasPhase2OnlyToc = false,
        _onDocumentSelected = null;
@@ -22,14 +20,14 @@ class ReaderDrawer extends StatelessWidget {
     required int currentDocumentIndex,
     required bool hasPhase2OnlyToc,
     required ValueChanged<int> onDocumentSelected,
-  }) : _chapters = null,
-       _navItems = navItems,
+  }) : _navItems = navItems,
        _currentDocumentIndex = currentDocumentIndex,
        _hasPhase2OnlyToc = hasPhase2OnlyToc,
-       _onDocumentSelected = onDocumentSelected;
+       _onDocumentSelected = onDocumentSelected,
+       legacyContentCount = null;
 
   final Book book;
-  final List<Chapter>? _chapters;
+  final int? legacyContentCount;
   final List<DocumentNavItem>? _navItems;
   final int? _currentDocumentIndex;
   final bool _hasPhase2OnlyToc;
@@ -38,7 +36,6 @@ class ReaderDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final navItems = _navItems;
-    final chapters = _chapters;
 
     return Drawer(
       child: SafeArea(
@@ -74,14 +71,14 @@ class ReaderDrawer extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     navItems == null
-                        ? 'Chapter navigation is temporarily disabled while the reader navigation is being rebuilt.'
+                        ? 'Legacy fallback mode keeps continuous reading available while document navigation is unavailable.'
                         : 'Phase 1 navigation works at the document level.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     navItems == null
-                        ? '${chapters!.length} chapters'
+                        ? _legacyContentSummary
                         : '${navItems.length} documents',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -89,16 +86,16 @@ class ReaderDrawer extends StatelessWidget {
               ),
             ),
 
-            // 章节列表标题
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                'Table of Contents',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            if (navItems != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Text(
+                  'Table of Contents',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
-            ),
             if (navItems != null && _hasPhase2OnlyToc)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -110,7 +107,7 @@ class ReaderDrawer extends StatelessWidget {
 
             Expanded(
               child: navItems == null
-                  ? _buildLegacyChapterList(context, chapters!)
+                  ? _buildLegacyFallbackMessage(context)
                   : _buildDocumentNavList(context, navItems),
             ),
           ],
@@ -119,23 +116,33 @@ class ReaderDrawer extends StatelessWidget {
     );
   }
 
-  Widget _buildLegacyChapterList(BuildContext context, List<Chapter> chapters) {
-    return ListView.builder(
-      itemCount: chapters.length,
-      itemBuilder: (context, index) {
-        final chapter = chapters[index];
-
-        return ListTile(
-          leading: _buildIndexBadge(context, index: index),
-          title: Text(
-            chapter.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+  Widget _buildLegacyFallbackMessage(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Navigation unavailable',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
-          enabled: false,
-        );
-      },
+          const SizedBox(height: 8),
+          Text(
+            'This session is using legacy fallback content. Reopen the book after a successful rebuild to use document navigation.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ],
+      ),
     );
+  }
+
+  String get _legacyContentSummary {
+    if (legacyContentCount == null) {
+      return 'Legacy fallback content available';
+    }
+    return '$legacyContentCount legacy content items';
   }
 
   Widget _buildDocumentNavList(

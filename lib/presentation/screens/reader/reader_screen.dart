@@ -11,7 +11,7 @@ import '../../../domain/entities/reading_progress_v2.dart';
 import '../../../domain/entities/reading_settings.dart';
 import '../../../domain/repositories/book_repository.dart';
 import '../../providers/book_providers.dart';
-import 'widgets/chapter_content.dart';
+import 'widgets/legacy_chapter_content.dart';
 import 'widgets/reader_bottom_bar.dart';
 import 'widgets/reader_document_content.dart';
 import 'widgets/reader_drawer.dart';
@@ -116,12 +116,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return dataSourceAsync.when(
       data: (dataSource) {
         if (!dataSource.usesV2) {
-          final chaptersAsync = ref.watch(chaptersProvider(widget.book.id));
-          return chaptersAsync.when(
-            data: (chapters) =>
-                ReaderDrawer.legacy(book: widget.book, chapters: chapters),
-            loading: () => _buildLoadingDrawer(),
-            error: (_, _) => _buildMessageDrawer('Error loading chapters'),
+          final legacyContentCount = ref
+              .watch(legacyChaptersProvider(widget.book.id))
+              .maybeWhen(
+                data: (legacyChapters) => legacyChapters.length,
+                orElse: () => null,
+              );
+          return ReaderDrawer.legacy(
+            book: widget.book,
+            legacyContentCount: legacyContentCount,
           );
         }
 
@@ -163,23 +166,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   Widget _buildLegacyContent(ReadingSettings settings) {
     _documentCount = 0;
 
-    final chaptersAsync = ref.watch(chaptersProvider(widget.book.id));
-    return chaptersAsync.when(
-      data: (chapters) {
-        if (chapters.isEmpty) {
-          return const Center(child: Text('No chapters found'));
+    final legacyContentAsync = ref.watch(
+      legacyChaptersProvider(widget.book.id),
+    );
+    return legacyContentAsync.when(
+      data: (legacyContent) {
+        if (legacyContent.isEmpty) {
+          return const Center(child: Text('No legacy content found'));
         }
 
         return ListView.builder(
           controller: _legacyScrollController,
-          itemCount: chapters.length,
+          itemCount: legacyContent.length,
           itemBuilder: (context, index) {
-            return ChapterContent(chapter: chapters[index], settings: settings);
+            return LegacyChapterContent(
+              legacyChapter: legacyContent[index],
+              settings: settings,
+            );
           },
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Error: $error')),
+      error: (error, _) =>
+          Center(child: Text('Error loading legacy content: $error')),
     );
   }
 
@@ -259,9 +268,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         data: (dataSource) => dataSource.usesV2
             ? _buildV2BottomBar()
             : ReaderBottomBar(
-                title: 'Legacy reader mode',
+                title: 'Legacy fallback mode',
                 subtitle:
-                    'Chapter navigation becomes available after this book rebuilds.',
+                    'Continuous reading stays available in this session while document navigation is unavailable.',
                 onSettingsPressed: _showSettings,
               ),
         loading: () => ReaderBottomBar(
@@ -270,8 +279,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           onSettingsPressed: _showSettings,
         ),
         error: (_, _) => ReaderBottomBar(
-          title: 'Legacy reader mode',
-          subtitle: 'Falling back to the legacy reader session.',
+          title: 'Legacy fallback mode',
+          subtitle: 'Falling back to legacy content for this session.',
           onSettingsPressed: _showSettings,
         ),
       ),

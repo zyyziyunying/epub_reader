@@ -177,107 +177,109 @@ void main() {
     expect(repository.savedV2Progress.last.documentProgress, greaterThan(0.4));
   });
 
-  testWidgets('flushes V2 reading progress when app lifecycle changes to paused', (
-    tester,
-  ) async {
-    final repository = _FakeReaderRepository(
-      book: _book(
-        'book-v2-paused',
-        navigationDataVersion: Book.v2NavigationDataVersion,
-        navigationRebuildState: NavigationRebuildState.ready,
-      ),
-      chapters: [_chapter('book-v2-paused', 0, 'Legacy Chapter')],
-      documents: [
-        _document('book-v2-paused', 0, 'Document 1', paragraphCount: 28),
-      ],
-      tocItems: [
-        _tocItem('book-v2-paused', 0, title: 'Intro', targetDocumentIndex: 0),
-      ],
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          bookRepositoryProvider.overrideWith((ref) => repository),
-          bookReadingDataSourceProvider.overrideWith(
-            (ref, session) async => BookReadingDataSource.v2,
-          ),
+  testWidgets(
+    'flushes V2 reading progress when app lifecycle changes to paused',
+    (tester) async {
+      final repository = _FakeReaderRepository(
+        book: _book(
+          'book-v2-paused',
+          navigationDataVersion: Book.v2NavigationDataVersion,
+          navigationRebuildState: NavigationRebuildState.ready,
+        ),
+        chapters: [_chapter('book-v2-paused', 0, 'Legacy Chapter')],
+        documents: [
+          _document('book-v2-paused', 0, 'Document 1', paragraphCount: 28),
         ],
-        child: MaterialApp(home: ReaderScreen(book: repository.book)),
-      ),
-    );
-
-    await tester.pumpAndSettle();
-    expect(repository.v2ProgressSaveCount, 0);
-
-    await tester.drag(
-      find.byType(ScrollablePositionedList),
-      const Offset(0, -300),
-    );
-    await tester.pump();
-
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pumpAndSettle();
-
-    expect(repository.savedV2Progress, isNotEmpty);
-    expect(repository.v2ProgressSaveCount, 1);
-    expect(repository.savedV2Progress.last.documentIndex, 0);
-    expect(repository.savedV2Progress.last.documentProgress, greaterThan(0));
-
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-  });
-
-  testWidgets('flushes V2 reading progress when app lifecycle changes to hidden', (
-    tester,
-  ) async {
-    final repository = _FakeReaderRepository(
-      book: _book(
-        'book-v2-hidden',
-        navigationDataVersion: Book.v2NavigationDataVersion,
-        navigationRebuildState: NavigationRebuildState.ready,
-      ),
-      chapters: [_chapter('book-v2-hidden', 0, 'Legacy Chapter')],
-      documents: [
-        _document('book-v2-hidden', 0, 'Document 1', paragraphCount: 28),
-      ],
-      tocItems: [
-        _tocItem('book-v2-hidden', 0, title: 'Intro', targetDocumentIndex: 0),
-      ],
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          bookRepositoryProvider.overrideWith((ref) => repository),
-          bookReadingDataSourceProvider.overrideWith(
-            (ref, session) async => BookReadingDataSource.v2,
-          ),
+        tocItems: [
+          _tocItem('book-v2-paused', 0, title: 'Intro', targetDocumentIndex: 0),
         ],
-        child: MaterialApp(home: ReaderScreen(book: repository.book)),
-      ),
-    );
+      );
 
-    await tester.pumpAndSettle();
-    expect(repository.v2ProgressSaveCount, 0);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bookRepositoryProvider.overrideWith((ref) => repository),
+            bookReadingDataSourceProvider.overrideWith(
+              (ref, session) async => BookReadingDataSource.v2,
+            ),
+          ],
+          child: MaterialApp(home: ReaderScreen(book: repository.book)),
+        ),
+      );
 
-    await tester.drag(
-      find.byType(ScrollablePositionedList),
-      const Offset(0, -300),
-    );
-    await tester.pump();
+      await tester.pumpAndSettle();
+      expect(repository.v2ProgressSaveCount, 0);
 
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-    await tester.pumpAndSettle();
+      await tester.drag(
+        find.byType(ScrollablePositionedList),
+        const Offset(0, -300),
+      );
+      await tester.pump();
 
-    expect(repository.savedV2Progress, isNotEmpty);
-    expect(repository.v2ProgressSaveCount, 1);
-    expect(repository.savedV2Progress.last.documentIndex, 0);
-    expect(repository.savedV2Progress.last.documentProgress, greaterThan(0));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
 
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-  });
+      expect(repository.savedV2Progress, isNotEmpty);
+      expect(repository.v2ProgressSaveCount, 1);
+      expect(repository.savedV2Progress.last.documentIndex, 0);
+      expect(repository.savedV2Progress.last.documentProgress, greaterThan(0));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'flushes V2 reading progress when app lifecycle changes to hidden',
+    (tester) async {
+      final repository = _FakeReaderRepository(
+        book: _book(
+          'book-v2-hidden',
+          navigationDataVersion: Book.v2NavigationDataVersion,
+          navigationRebuildState: NavigationRebuildState.ready,
+        ),
+        chapters: [_chapter('book-v2-hidden', 0, 'Legacy Chapter')],
+        documents: [
+          _document('book-v2-hidden', 0, 'Document 1', paragraphCount: 28),
+        ],
+        tocItems: [
+          _tocItem('book-v2-hidden', 0, title: 'Intro', targetDocumentIndex: 0),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bookRepositoryProvider.overrideWith((ref) => repository),
+            bookReadingDataSourceProvider.overrideWith(
+              (ref, session) async => BookReadingDataSource.v2,
+            ),
+          ],
+          child: MaterialApp(home: ReaderScreen(book: repository.book)),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      expect(repository.v2ProgressSaveCount, 0);
+
+      await tester.drag(
+        find.byType(ScrollablePositionedList),
+        const Offset(0, -300),
+      );
+      await tester.pump();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pumpAndSettle();
+
+      expect(repository.savedV2Progress, isNotEmpty);
+      expect(repository.v2ProgressSaveCount, 1);
+      expect(repository.savedV2Progress.last.documentIndex, 0);
+      expect(repository.savedV2Progress.last.documentProgress, greaterThan(0));
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+    },
+  );
 
   testWidgets('keeps legacy reading UI for legacy reader sessions', (
     tester,
@@ -286,7 +288,7 @@ void main() {
       book: _book(
         'book-legacy',
         navigationRebuildState: NavigationRebuildState.legacyPending,
-      ),
+      ).copyWith(totalChapters: 99),
       chapters: [
         _chapter('book-legacy', 0, 'Legacy Chapter 1'),
         _chapter('book-legacy', 1, 'Legacy Chapter 2'),
@@ -331,13 +333,26 @@ void main() {
     await tester.tapAt(const Offset(200, 200));
     await tester.pumpAndSettle();
 
-    expect(find.text('Legacy reader mode'), findsOneWidget);
+    expect(find.text('Legacy fallback mode'), findsOneWidget);
     expect(
       find.text(
-        'Chapter navigation becomes available after this book rebuilds.',
+        'Continuous reading stays available in this session while document navigation is unavailable.',
       ),
       findsOneWidget,
     );
+
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Navigation unavailable'), findsOneWidget);
+    expect(
+      find.text(
+        'This session is using legacy fallback content. Reopen the book after a successful rebuild to use document navigation.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('2 legacy content items'), findsOneWidget);
+    expect(find.text('Table of Contents'), findsNothing);
   });
 }
 
@@ -420,7 +435,6 @@ class _FakeReaderRepository implements BookRepository {
   @override
   Future<void> importBookWithNavigationDataV2Ready({
     required Book book,
-    required List<Chapter> legacyChapters,
     required List<ReaderDocument> documents,
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,

@@ -13,17 +13,24 @@ abstract class BookRepository {
   Future<void> insertBook(Book book);
   Future<void> updateBook(Book book);
   Future<void> deleteBook(String id);
+
+  /// Legacy fallback content used only by non-ready reader sessions.
   Future<List<Chapter>> getChaptersByBookId(String bookId);
+
+  /// Legacy chapter lookup used only by best-effort progress mapping.
   Future<Chapter?> getChapter(String bookId, int index);
+
+  /// Legacy import / fallback helpers retained for old-session compatibility.
   Future<void> insertChapter(Chapter chapter);
   Future<void> insertChapters(List<Chapter> chapters);
   Future<void> importBookWithNavigationDataV2Ready({
     required Book book,
-    required List<Chapter> legacyChapters,
     required List<ReaderDocument> documents,
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
   });
+
+  /// Legacy progress retained only for best-effort mapping into V2.
   Future<ReadingProgress?> getReadingProgress(String bookId);
   Future<void> saveReadingProgress(ReadingProgress progress);
   Future<BookReadingDataSource> getBookReadingDataSource(String bookId);

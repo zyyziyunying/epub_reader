@@ -648,7 +648,6 @@ class _FakeBookRepository implements BookRepository {
   @override
   Future<void> importBookWithNavigationDataV2Ready({
     required Book book,
-    required List<Chapter> legacyChapters,
     required List<ReaderDocument> documents,
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,

@@ -5,7 +5,6 @@ import 'package:epub_reader/data/datasources/local/database.dart';
 import 'package:epub_reader/data/repositories/book_repository_impl.dart';
 import 'package:epub_reader/domain/entities/book.dart';
 import 'package:epub_reader/domain/entities/book_reading_data_source.dart';
-import 'package:epub_reader/domain/entities/chapter.dart';
 import 'package:epub_reader/domain/entities/navigation_rebuild_state.dart';
 import 'package:epub_reader/domain/entities/reading_progress_v2.dart';
 import 'package:epub_reader/domain/entities/reader_document.dart';
@@ -429,7 +428,7 @@ void main() {
     );
 
     test(
-      'imports new books directly as ready and keeps legacy chapters for compatibility',
+      'imports new books directly as ready without persisting legacy chapters',
       () async {
         const importedBookId = 'book-import';
         await repository.importBookWithNavigationDataV2Ready(
@@ -437,7 +436,6 @@ void main() {
             navigationDataVersion: Book.v2NavigationDataVersion,
             navigationRebuildState: NavigationRebuildState.ready,
           ),
-          legacyChapters: _chapters(importedBookId),
           documents: _documents(importedBookId),
           tocItems: _tocItems(importedBookId),
         );
@@ -452,12 +450,7 @@ void main() {
           BookReadingDataSource.v2,
         );
 
-        expect(
-          (await repository.getChaptersByBookId(
-            importedBookId,
-          )).map((chapter) => chapter.index),
-          orderedEquals([0, 1]),
-        );
+        expect(await repository.getChaptersByBookId(importedBookId), isEmpty);
         expect(
           (await repository.getReaderDocumentsByBookId(
             importedBookId,
@@ -587,7 +580,6 @@ void main() {
             navigationDataVersion: Book.v2NavigationDataVersion,
             navigationRebuildState: NavigationRebuildState.ready,
           ),
-          legacyChapters: _chapters(importedBookId),
           documents: _documents(importedBookId),
           tocItems: _tocItems(importedBookId),
         ),
@@ -743,21 +735,6 @@ Book _book(String id) {
     filePath: 'D:/books/$id.epub',
     totalChapters: 2,
     addedAt: DateTime.utc(2026, 3, 22),
-  );
-}
-
-List<Chapter> _chapters(String bookId) {
-  return [_chapter(bookId, 0), _chapter(bookId, 1)];
-}
-
-Chapter _chapter(String bookId, int index) {
-  return Chapter(
-    id: '$bookId:chapter:$index',
-    bookId: bookId,
-    index: index,
-    title: 'Chapter $index',
-    content:
-        '<html><head><title>Chapter $index</title></head><body></body></html>',
   );
 }
 
