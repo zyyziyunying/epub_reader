@@ -185,7 +185,7 @@ Date: 2026-03-24
   - legacy 会话 drawer 不再把 `Chapter` 作为目录模型渲染，而是只显示 fallback 提示
   - legacy drawer 的数量提示已改为读取真实 fallback 正文数，不再复用 `Book.totalChapters`
   - reader / provider 文案开始把 legacy 路径收敛为“正文 fallback”，不再表达为正式导航能力
-  - reader 侧 legacy 正文 provider / widget 已开始按 fallback 语义命名，避免继续把 `Chapter` 误用成主导航模型
+  - reader 侧 legacy 正文 provider / widget 现已按 fallback 语义命名，避免继续把 `Chapter` 误用成主导航模型
 - 当前仍保留的 legacy 职责：
   - 旧书 `legacy_pending / rebuilding / failed` 会话的连续正文 fallback 渲染
   - 旧进度 `ReadingProgress` 与 `Chapter.content` 作为后台重建 best-effort 映射输入

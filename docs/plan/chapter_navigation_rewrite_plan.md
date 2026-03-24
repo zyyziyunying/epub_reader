@@ -1,6 +1,6 @@
 # Reader Chapter Navigation Rewrite Plan
 
-Date: 2026-03-22
+Date: 2026-03-24
 
 ## 文档定位
 
@@ -11,13 +11,8 @@ Date: 2026-03-22
 
 ## 当前代码基线
 
-截至 2026-03-22，当前代码已推进到 Step 2，状态如下：
+截至 2026-03-24，当前代码已推进到 Step 6，状态如下：
 
-- 阅读器 UI 仍保持 Phase 0 的最小阅读形态：
-  - 正文连续滚动阅读
-  - 目录列表展示，但章节项暂不可点击
-  - 阅读设置调整
-  - 进入阅读时更新 `last_read_at`
 - Step 0 已落：
   - 导航 builder
   - `ReaderDocument` / `TocItem` / `DocumentNavItem`
@@ -30,20 +25,30 @@ Date: 2026-03-22
   - 最小 `ReadingProgressV2` 默认写入策略
 - Step 2 已落：
   - 新导入书籍主链路现已直接生成并写入 V2 `ready` 数据
-  - 导入时仍保留 legacy `chapters` 作为当前阅读器 UI 的最小兼容数据
   - 新书导入失败不会留下 V2 半成品或残留书籍记录
+- Step 3 已落：
+  - 旧书 `legacy_pending -> rebuilding -> ready / failed` 重建状态机
+  - 按阅读页实例建立的会话读取选择器
+  - Phase 1 默认策略：当前会话保持 legacy，下次进入切到 V2
+- Step 4 已落：
+  - 阅读器 `ready` 会话已改为按 `ReaderDocument[]` 渲染
+  - 目录抽屉只消费 `DocumentNavItem[]`
+  - 上一章 / 下一章已按 `documentIndex` 生效
+- Step 5 已落：
+  - V2 进度保存 / 恢复已切到 `documentIndex + documentProgress`
+  - legacy `chapterIndex + scrollPosition` 已接入 best-effort 映射，但不阻塞 `ready`
+- Step 6 正在推进，但本轮已完成一轮关键收口：
+  - 新导入且直接 `ready` 的书不再额外持久化 legacy `chapters`
+  - repository 的 legacy 降级入口现已拒绝把“无 persisted legacy fallback 的 V2-only `ready` 书”切回 `legacy_pending / rebuilding / failed`
+  - coordinator / repository 已补出独立的 `ready-preserving refresh` 官方入口，刷新期间旧 V2 保持可读，成功后原子替换，失败时保持旧 V2 和 `ready` 状态不变
+  - `ready-preserving refresh` 现已补上显式能力判断与事务内断言，只允许“无 persisted legacy fallback 的 V2-only `ready` 书”进入
+  - legacy fallback UI 现已按 `loading / error / empty / available` 四态分流；正文区、底栏和抽屉不再把 error 伪装成 loading
 
 当前代码暂不保证：
 
-- 旧书 `legacy_pending -> rebuilding -> ready / failed` 重建状态机
-- 按 `bookId` 驱动的统一读取选择器或阅读会话层
-- 阅读器 V2 渲染
-- 目录点击跳转
-- 上一章 / 下一章
-- 章节 Slider 跳转
-- 稳定的当前章节高亮
-- 统一 `current document` 判定
-- 基于 V2 的进度保存 / 恢复与 legacy 进度映射
+- Step 6 整体完成；旧书 fallback 正文链路和 legacy 进度映射输入仍在
+- 完全移除 `Chapter` 在过渡期兼容中的职责
+- Phase 2 范围内的原始 `TocItem` 树目录、`href#anchor` 精确跳转和更细粒度目录高亮
 
 这意味着后续工作不应再尝试给 legacy 逻辑打补丁，而应直接围绕 V2 模型补齐数据链路和阅读器能力。
 
@@ -54,7 +59,7 @@ Date: 2026-03-22
 - 优先做 example / fixture 驱动的纯数据验证，再做 repository 变更和阅读页行为
 - “当前文档识别”属于阅读器交互基础能力，不能晚于目录跳转和上一章 / 下一章
 - 旧书重建必须先定义触发者、读取选择器和同会话切换策略；Phase 1 默认不要求会话内热切换
-- 每一步都保持旧书在失败场景下仍能回到 Phase 0 最小阅读体验
+- 旧书 `legacy_pending / rebuilding / failed` 仍需在失败场景下保留 Phase 0 最小阅读体验；但 V2-only `ready` 书后续刷新不得再降回 legacy，而应保持 `ready` 可读并做原位刷新
 
 ## 建议实施顺序
 
@@ -194,19 +199,27 @@ Date: 2026-03-22
 目标：
 
 - 在 V2 链路稳定后，逐步移除 `Chapter` 在阅读器导航中的剩余职责
+- 明确 V2-only `ready` 书未来的恢复 / 重建官方入口是独立的 `ready-preserving refresh`，而不是 legacy 降级
 
 建议产出：
 
 - 阅读器导航不再依赖 `Chapter`
-- legacy 数据仅用于过渡期回退或历史兼容
+- legacy 数据仅用于旧书过渡期 fallback 或历史兼容
+- `ready-preserving refresh` 继续保持独立入口，不与 legacy 状态机复用
+- repository / coordinator 对该入口继续保留“显式能力判断 + 事务内断言”的双层防线
+- legacy fallback UI 继续显式区分 `loading / error / empty / available`
 - 与旧定位逻辑相关的临时代码清理
 
 完成后应能验证：
 
 - 阅读器导航主链路只依赖 V2 数据
 - legacy 逻辑不会与 V2 并存竞争
+- “有 persisted legacy chapters 的 ready 书”不会误走 `ready-preserving refresh`
+- legacy fallback 读取失败时，正文区、底栏和抽屉都显示失败语义，而不是沿用 loading 文案
 
 ## 推荐提交切片
+
+截至 2026-03-24，切片 1 到 6 已完成；切片 7 正在推进，且已先收口 V2-only `ready` refresh blocker 与 legacy fallback 四态语义。
 
 1. Step 0 fixture / example + 纯数据断言
 2. 数据库迁移 + V2 实体 / repository 单书事务与清理接口 + 最小 `ReadingProgressV2` 契约
@@ -231,9 +244,11 @@ Date: 2026-03-22
 2. 目录与导航边界
    以约束文档中的“Phase 1 范围收敛”和“Phase 1 完成边界”为准，验证目录抽屉只消费 `DocumentNavItem[]`、Phase 2-only TOC 只显示统一说明、上一章 / 下一章只按 `documentIndex` 移动，且这些入口共享统一的 `current document` 判定。
 3. 原子切换与失败回退
-   以约束文档中的“V2 迁移与切换约束”为准，验证单书事务写入、中断恢复、失败清理、同会话切换策略，以及旧书在失败场景下稳定回退到 Phase 0 最小阅读体验。
+   以约束文档中的“V2 迁移与切换约束”为准，验证单书事务写入、中断恢复、失败清理、同会话切换策略，以及两类失败语义：
+   - 旧书重建失败时稳定回退到 Phase 0 最小阅读体验
+   - V2-only `ready` 书刷新失败时保持旧 V2 和 `ready` 状态不变，不降回 legacy
 4. 进度保存与恢复
-   以约束文档中的“进度模型定义”和“旧进度处理策略”为准，验证 `documentIndex + documentProgress` 的保存 / 恢复，以及 legacy 进度 best-effort 映射不阻塞打开。
+   以约束文档中的“进度模型定义”和“旧进度处理策略”为准，验证 `documentIndex + documentProgress` 的保存 / 恢复、legacy 进度 best-effort 映射不阻塞打开，以及 `ready-preserving refresh` 只 best-effort 继承 `documentIndex + documentProgress`
 
 ### 必测 EPUB 场景
 

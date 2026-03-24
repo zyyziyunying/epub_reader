@@ -247,10 +247,8 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettings> {
 // ============ 阅读器相关 Providers ============
 
 // 当前书籍的 legacy fallback 正文列表
-final legacyChaptersProvider = FutureProvider.family<List<Chapter>, String>((
-  ref,
-  bookId,
-) async {
-  final repository = ref.watch(bookRepositoryProvider);
-  return repository.getChaptersByBookId(bookId);
-});
+final legacyFallbackContentProvider =
+    FutureProvider.family<List<Chapter>, String>((ref, bookId) async {
+      final repository = ref.watch(bookRepositoryProvider);
+      return repository.getChaptersByBookId(bookId);
+    });

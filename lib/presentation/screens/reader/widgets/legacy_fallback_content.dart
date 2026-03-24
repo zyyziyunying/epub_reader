@@ -4,13 +4,13 @@ import 'package:flutter_html/flutter_html.dart';
 import '../../../../domain/entities/chapter.dart';
 import '../../../../domain/entities/reading_settings.dart';
 
-class LegacyChapterContent extends StatelessWidget {
-  final Chapter legacyChapter;
+class LegacyFallbackContent extends StatelessWidget {
+  final Chapter legacyFallbackContent;
   final ReadingSettings settings;
 
-  const LegacyChapterContent({
+  const LegacyFallbackContent({
     super.key,
-    required this.legacyChapter,
+    required this.legacyFallbackContent,
     required this.settings,
   });
 
@@ -29,7 +29,7 @@ class LegacyChapterContent extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 24.0, top: 16.0),
             child: Text(
-              legacyChapter.title,
+              legacyFallbackContent.title,
               style: TextStyle(
                 fontSize: settings.fontSize * 1.3,
                 fontWeight: FontWeight.bold,
@@ -42,7 +42,7 @@ class LegacyChapterContent extends StatelessWidget {
           ),
           // 章节内容
           Html(
-            data: legacyChapter.content,
+            data: legacyFallbackContent.content,
             style: {
               'body': Style(
                 fontSize: FontSize(settings.fontSize),

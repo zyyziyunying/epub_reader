@@ -13,7 +13,7 @@ import '../../../domain/entities/reading_settings.dart';
 import '../../../domain/repositories/book_repository.dart';
 import '../../providers/book_providers.dart';
 import 'legacy_fallback_status.dart';
-import 'widgets/legacy_chapter_content.dart';
+import 'widgets/legacy_fallback_content.dart';
 import 'widgets/reader_bottom_bar.dart';
 import 'widgets/reader_document_content.dart';
 import 'widgets/reader_drawer.dart';
@@ -120,7 +120,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       data: (dataSource) {
         if (!dataSource.usesV2) {
           final legacyFallbackStatus = _legacyFallbackStatus(
-            ref.watch(legacyChaptersProvider(widget.book.id)),
+            ref.watch(legacyFallbackContentProvider(widget.book.id)),
           );
           return ReaderDrawer.legacy(
             book: widget.book,
@@ -157,31 +157,33 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return dataSourceAsync.when(
       data: (dataSource) => dataSource.usesV2
           ? _buildV2Content(settings)
-          : _buildLegacyContent(settings),
+          : _buildLegacyFallbackContent(settings),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => Center(child: Text('Error: $error')),
     );
   }
 
-  Widget _buildLegacyContent(ReadingSettings settings) {
+  Widget _buildLegacyFallbackContent(ReadingSettings settings) {
     _documentCount = 0;
 
-    final legacyContentAsync = ref.watch(
-      legacyChaptersProvider(widget.book.id),
+    final legacyFallbackContentAsync = ref.watch(
+      legacyFallbackContentProvider(widget.book.id),
     );
-    final legacyFallbackStatus = _legacyFallbackStatus(legacyContentAsync);
-    return legacyContentAsync.when(
-      data: (legacyContent) {
-        if (legacyContent.isEmpty) {
+    final legacyFallbackStatus = _legacyFallbackStatus(
+      legacyFallbackContentAsync,
+    );
+    return legacyFallbackContentAsync.when(
+      data: (legacyFallbackContent) {
+        if (legacyFallbackContent.isEmpty) {
           return _buildLegacyFallbackMessageContent(legacyFallbackStatus);
         }
 
         return ListView.builder(
           controller: _legacyScrollController,
-          itemCount: legacyContent.length,
+          itemCount: legacyFallbackContent.length,
           itemBuilder: (context, index) {
-            return LegacyChapterContent(
-              legacyChapter: legacyContent[index],
+            return LegacyFallbackContent(
+              legacyFallbackContent: legacyFallbackContent[index],
               settings: settings,
             );
           },
@@ -271,7 +273,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           }
 
           final legacyFallbackStatus = _legacyFallbackStatus(
-            ref.watch(legacyChaptersProvider(widget.book.id)),
+            ref.watch(legacyFallbackContentProvider(widget.book.id)),
           );
 
           return ReaderBottomBar(
@@ -335,12 +337,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   LegacyFallbackStatus _legacyFallbackStatus(
-    AsyncValue<List<Chapter>> legacyContentAsync,
+    AsyncValue<List<Chapter>> legacyFallbackContentAsync,
   ) {
-    return legacyContentAsync.when(
-      data: (legacyContent) => legacyContent.isEmpty
+    return legacyFallbackContentAsync.when(
+      data: (legacyFallbackContent) => legacyFallbackContent.isEmpty
           ? const LegacyFallbackStatus.empty()
-          : LegacyFallbackStatus.available(legacyContent.length),
+          : LegacyFallbackStatus.available(legacyFallbackContent.length),
       loading: () => const LegacyFallbackStatus.loading(),
       error: (error, _) => LegacyFallbackStatus.error(error),
     );
