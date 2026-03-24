@@ -48,6 +48,12 @@ abstract class BookRepository {
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
   });
+  Future<bool> supportsReadyPreservingRefresh(String bookId);
+  Future<void> refreshNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+  });
   Future<void> markNavigationRebuildInProgress(String bookId);
   Future<void> resetNavigationDataToLegacy(
     String bookId, {

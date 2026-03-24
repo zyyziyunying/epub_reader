@@ -135,6 +135,208 @@ void main() {
     });
 
     test(
+      'refreshes ready books through the dedicated ready entrypoint',
+      () async {
+        const bookId = 'book-ready-refresh';
+        final repository = _FakeBookRepository(
+          book: _book(
+            bookId,
+            navigationDataVersion: Book.v2NavigationDataVersion,
+            navigationRebuildState: NavigationRebuildState.ready,
+          ),
+          readyProgress: ReadingProgressV2(
+            bookId: bookId,
+            documentIndex: 1,
+            documentProgress: 0.55,
+            tocItemId: '$bookId:toc:1',
+            anchor: 'old-anchor',
+            updatedAt: DateTime.utc(2026, 3, 22, 11),
+          ),
+        );
+        final parserService = _FakeEpubParserService(
+          navigationResult: NavigationBuildResult(
+            documents: [
+              ReaderDocument(
+                id: '$bookId:doc:new:0',
+                bookId: bookId,
+                documentIndex: 0,
+                fileName: 'OPS/Refresh/ch1.xhtml',
+                title: 'Refreshed 1',
+                htmlContent: '<html><body>Refreshed 1</body></html>',
+              ),
+              ReaderDocument(
+                id: '$bookId:doc:new:1',
+                bookId: bookId,
+                documentIndex: 1,
+                fileName: 'OPS/Refresh/ch2.xhtml',
+                title: 'Refreshed 2',
+                htmlContent: '<html><body>Refreshed 2</body></html>',
+              ),
+            ],
+            tocItems: [
+              TocItem(
+                id: '$bookId:toc:new:0',
+                bookId: bookId,
+                title: 'Refreshed 1',
+                order: 0,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Refresh/ch1.xhtml',
+                anchor: null,
+                targetDocumentIndex: 0,
+              ),
+              TocItem(
+                id: '$bookId:toc:new:1',
+                bookId: bookId,
+                title: 'Refreshed 2',
+                order: 1,
+                depth: 0,
+                parentId: null,
+                fileName: 'OPS/Refresh/ch2.xhtml',
+                anchor: null,
+                targetDocumentIndex: 1,
+              ),
+            ],
+            navItems: const [],
+            hasPhase2OnlyToc: false,
+            usedSpineOrder: true,
+          ),
+        );
+        final coordinator = NavigationRebuildCoordinator(
+          repository: repository,
+          parserService: parserService,
+        );
+
+        await coordinator.refreshReadyNavigationData(bookId);
+
+        expect(parserService.calledBookIds, orderedEquals([bookId]));
+        expect(repository.events, orderedEquals(['refresh:ready']));
+        expect(repository.book!.usesV2Navigation, isTrue);
+        expect(
+          repository.documents.map((document) => document.title),
+          orderedEquals(['Refreshed 1', 'Refreshed 2']),
+        );
+        expect(repository.progress, isNotNull);
+        expect(repository.progress!.documentIndex, 1);
+        expect(repository.progress!.documentProgress, 0.55);
+        expect(repository.progress!.tocItemId, isNull);
+        expect(repository.progress!.anchor, isNull);
+      },
+    );
+
+    test(
+      'rejects ready refresh for ready books that still have persisted legacy fallback content',
+      () async {
+        const bookId = 'book-ready-refresh-legacy-fallback';
+        final repository = _FakeBookRepository(
+          book: _book(
+            bookId,
+            navigationDataVersion: Book.v2NavigationDataVersion,
+            navigationRebuildState: NavigationRebuildState.ready,
+          ),
+          chapters: [
+            Chapter(
+              id: '$bookId:chapter:0',
+              bookId: bookId,
+              index: 0,
+              title: 'Legacy Chapter',
+              content: '<html><body>Legacy Chapter</body></html>',
+            ),
+          ],
+        );
+        final parserService = _FakeEpubParserService();
+        final coordinator = NavigationRebuildCoordinator(
+          repository: repository,
+          parserService: parserService,
+        );
+
+        await expectLater(
+          coordinator.refreshReadyNavigationData(bookId),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('ready V2-only books without persisted legacy fallback'),
+            ),
+          ),
+        );
+
+        expect(parserService.calledBookIds, isEmpty);
+        expect(repository.events, isEmpty);
+      },
+    );
+
+    test('keeps existing V2 data when ready refresh fails', () async {
+      const bookId = 'book-ready-refresh-failed';
+      final repository = _FakeBookRepository(
+        book: _book(
+          bookId,
+          navigationDataVersion: Book.v2NavigationDataVersion,
+          navigationRebuildState: NavigationRebuildState.ready,
+        ),
+        documents: [
+          ReaderDocument(
+            id: '$bookId:doc:0',
+            bookId: bookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Existing document',
+            htmlContent: '<html><body>Existing document</body></html>',
+          ),
+        ],
+        tocItems: [
+          TocItem(
+            id: '$bookId:toc:0',
+            bookId: bookId,
+            title: 'Existing document',
+            order: 0,
+            depth: 0,
+            parentId: null,
+            fileName: 'OPS/Text/ch1.xhtml',
+            anchor: null,
+            targetDocumentIndex: 0,
+          ),
+        ],
+        readyProgress: ReadingProgressV2(
+          bookId: bookId,
+          documentIndex: 0,
+          documentProgress: 0.4,
+          tocItemId: '$bookId:toc:0',
+          anchor: 'old-anchor',
+          updatedAt: DateTime.utc(2026, 3, 22, 12),
+        ),
+        refreshShouldThrow: true,
+      );
+      final parserService = _FakeEpubParserService();
+      final coordinator = NavigationRebuildCoordinator(
+        repository: repository,
+        parserService: parserService,
+      );
+
+      await expectLater(
+        coordinator.refreshReadyNavigationData(bookId),
+        throwsA(isA<Exception>()),
+      );
+
+      expect(parserService.calledBookIds, orderedEquals([bookId]));
+      expect(repository.events, orderedEquals(['refresh:ready']));
+      expect(repository.book!.usesV2Navigation, isTrue);
+      expect(
+        repository.book!.navigationRebuildState,
+        NavigationRebuildState.ready,
+      );
+      expect(
+        repository.documents.map((document) => document.title),
+        orderedEquals(['Existing document']),
+      );
+      expect(repository.progress, isNotNull);
+      expect(repository.progress!.documentIndex, 0);
+      expect(repository.progress!.documentProgress, 0.4);
+      expect(repository.progress!.tocItemId, '$bookId:toc:0');
+      expect(repository.progress!.anchor, 'old-anchor');
+    });
+
+    test(
       'best-effort maps legacy reading progress into V2 ready progress',
       () async {
         const bookId = 'book-progress-map';
@@ -266,7 +468,8 @@ void main() {
         parserService: _FakeEpubParserService(),
       ),
       (
-        description: 'still reaches ready when legacy progress mapping is ambiguous',
+        description:
+            'still reaches ready when legacy progress mapping is ambiguous',
         repository: _FakeBookRepository(
           book: _book(
             'book-progress-ambiguous',
@@ -346,7 +549,9 @@ void main() {
         );
         final bookId = scenario.repository.book!.id;
 
-        final dataSource = await coordinator.resolveDataSourceForSession(bookId);
+        final dataSource = await coordinator.resolveDataSourceForSession(
+          bookId,
+        );
         await coordinator.waitForActiveRebuild(bookId);
 
         expect(dataSource, BookReadingDataSource.legacy);
@@ -530,13 +735,19 @@ class _FakeBookRepository implements BookRepository {
     required this.book,
     this.chapters = const [],
     this.legacyProgress,
-  });
+    this.documents = const [],
+    this.tocItems = const [],
+    this.readyProgress,
+    this.refreshShouldThrow = false,
+  }) : progress = readyProgress;
 
   Book? book;
   final List<Chapter> chapters;
   final ReadingProgress? legacyProgress;
-  List<ReaderDocument> documents = const [];
-  List<TocItem> tocItems = const [];
+  final ReadingProgressV2? readyProgress;
+  final bool refreshShouldThrow;
+  List<ReaderDocument> documents;
+  List<TocItem> tocItems;
   ReadingProgressV2? progress;
   ReadingProgressV2? savedInitialProgress;
   final List<String> events = [];
@@ -571,6 +782,60 @@ class _FakeBookRepository implements BookRepository {
     this.tocItems = tocItems;
     savedInitialProgress = initialProgress;
     progress = initialProgress ?? ReadingProgressV2.initial(bookId);
+    book = book!.copyWith(
+      navigationDataVersion: Book.v2NavigationDataVersion,
+      navigationRebuildState: NavigationRebuildState.ready,
+      navigationRebuildFailedAt: null,
+    );
+  }
+
+  @override
+  Future<bool> supportsReadyPreservingRefresh(String bookId) async {
+    return book?.id == bookId && book!.usesV2Navigation && chapters.isEmpty;
+  }
+
+  @override
+  Future<void> refreshNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+  }) async {
+    events.add('refresh:ready');
+    if (book == null || !book!.usesV2Navigation) {
+      throw StateError(
+        'refreshNavigationDataV2Ready requires an existing ready V2 book: $bookId',
+      );
+    }
+    if (chapters.isNotEmpty) {
+      throw StateError(
+        'refreshNavigationDataV2Ready only supports ready V2-only books without persisted legacy fallback content: $bookId',
+      );
+    }
+    if (refreshShouldThrow) {
+      throw Exception('forced ready refresh failure');
+    }
+
+    this.documents = documents;
+    this.tocItems = tocItems;
+
+    final currentProgress = progress;
+    if (currentProgress == null ||
+        currentProgress.documentIndex < 0 ||
+        currentProgress.documentIndex >= documents.length) {
+      progress = ReadingProgressV2.initial(bookId);
+    } else {
+      progress = ReadingProgressV2(
+        bookId: bookId,
+        documentIndex: currentProgress.documentIndex,
+        documentProgress: currentProgress.documentProgress
+            .clamp(0.0, 1.0)
+            .toDouble(),
+        tocItemId: null,
+        anchor: null,
+        updatedAt: currentProgress.updatedAt,
+      );
+    }
+
     book = book!.copyWith(
       navigationDataVersion: Book.v2NavigationDataVersion,
       navigationRebuildState: NavigationRebuildState.ready,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:epub_reader/domain/entities/book.dart';
 import 'package:epub_reader/domain/entities/book_reading_data_source.dart';
 import 'package:epub_reader/domain/entities/chapter.dart';
@@ -8,6 +10,7 @@ import 'package:epub_reader/domain/entities/reader_document.dart';
 import 'package:epub_reader/domain/entities/toc_item.dart';
 import 'package:epub_reader/domain/repositories/book_repository.dart';
 import 'package:epub_reader/presentation/providers/book_providers.dart';
+import 'package:epub_reader/presentation/screens/reader/widgets/reader_bottom_bar.dart';
 import 'package:epub_reader/presentation/screens/reader/reader_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+//TODO 拆分
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -354,6 +358,235 @@ void main() {
     expect(find.text('2 legacy content items'), findsOneWidget);
     expect(find.text('Table of Contents'), findsNothing);
   });
+
+  testWidgets('shows recovery copy when legacy fallback content is empty', (
+    tester,
+  ) async {
+    final repository = _FakeReaderRepository(
+      book: _book(
+        'book-legacy-empty',
+        navigationRebuildState: NavigationRebuildState.failed,
+      ),
+      chapters: const [],
+      documents: [
+        _document('book-legacy-empty', 0, 'Document 1', paragraphCount: 6),
+      ],
+      tocItems: [
+        _tocItem(
+          'book-legacy-empty',
+          0,
+          title: 'Intro',
+          targetDocumentIndex: 0,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bookRepositoryProvider.overrideWith((ref) => repository),
+          bookReadingDataSourceProvider.overrideWith(
+            (ref, session) async => BookReadingDataSource.legacy,
+          ),
+        ],
+        child: MaterialApp(home: ReaderScreen(book: repository.book)),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('Legacy fallback unavailable'), findsOneWidget);
+    expect(
+      find.text(
+        'This session has no persisted legacy fallback content. Reopen the book after a successful rebuild or reimport the book.',
+      ),
+      findsOneWidget,
+    );
+    expect(repository.v2ProgressReadCount, 0);
+    expect(repository.v2ProgressSaveCount, 0);
+
+    await tester.tap(find.text('Legacy fallback unavailable').first);
+    await tester.pumpAndSettle();
+
+    final bottomBar = tester.widget<ReaderBottomBar>(
+      find.byType(ReaderBottomBar),
+    );
+    expect(bottomBar.title, 'Legacy fallback unavailable');
+    expect(
+      bottomBar.subtitle,
+      'This session has no persisted legacy fallback content. Reopen after a successful rebuild or reimport the book.',
+    );
+
+    await tester.tap(find.byIcon(Icons.menu));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No legacy fallback content'), findsOneWidget);
+    expect(
+      find.text(
+        'Legacy fallback mode is active, but this book has no persisted fallback content for this session.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'keeps legacy fallback copy neutral while fallback content is still loading',
+    (tester) async {
+      final chaptersCompleter = Completer<List<Chapter>>();
+      final repository = _FakeReaderRepository(
+        book: _book(
+          'book-legacy-loading',
+          navigationRebuildState: NavigationRebuildState.failed,
+        ),
+        chapters: const [],
+        documents: [
+          _document('book-legacy-loading', 0, 'Document 1', paragraphCount: 6),
+        ],
+        tocItems: [
+          _tocItem(
+            'book-legacy-loading',
+            0,
+            title: 'Intro',
+            targetDocumentIndex: 0,
+          ),
+        ],
+        loadChapters: (_) => chaptersCompleter.future,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bookRepositoryProvider.overrideWith((ref) => repository),
+            bookReadingDataSourceProvider.overrideWith(
+              (ref, session) async => BookReadingDataSource.legacy,
+            ),
+          ],
+          child: MaterialApp(home: ReaderScreen(book: repository.book)),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      final gesture = tester.widget<GestureDetector>(
+        find.byType(GestureDetector).first,
+      );
+      gesture.onTap?.call();
+      await tester.pump();
+
+      final bottomBar = tester.widget<ReaderBottomBar>(
+        find.byType(ReaderBottomBar),
+      );
+      expect(bottomBar.title, 'Checking legacy fallback');
+      expect(
+        bottomBar.subtitle,
+        'Loading persisted legacy fallback content for this session...',
+      );
+      expect(
+        find.text(
+          'Continuous reading stays available in this session while document navigation is unavailable.',
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.byIcon(Icons.menu));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Checking legacy fallback content'), findsOneWidget);
+      expect(
+        find.text('Checking legacy fallback content for this session.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Loading persisted legacy fallback content for this session.',
+        ),
+        findsOneWidget,
+      );
+
+      chaptersCompleter.complete(const []);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'surfaces legacy fallback read failures across content, bottom bar, and drawer',
+    (tester) async {
+      final repository = _FakeReaderRepository(
+        book: _book(
+          'book-legacy-error',
+          navigationRebuildState: NavigationRebuildState.failed,
+        ),
+        chapters: const [],
+        documents: [
+          _document('book-legacy-error', 0, 'Document 1', paragraphCount: 6),
+        ],
+        tocItems: [
+          _tocItem(
+            'book-legacy-error',
+            0,
+            title: 'Intro',
+            targetDocumentIndex: 0,
+          ),
+        ],
+        loadChapters: (_) async => throw StateError('broken fallback read'),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            bookRepositoryProvider.overrideWith((ref) => repository),
+            bookReadingDataSourceProvider.overrideWith(
+              (ref, session) async => BookReadingDataSource.legacy,
+            ),
+          ],
+          child: MaterialApp(home: ReaderScreen(book: repository.book)),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Legacy fallback failed'), findsOneWidget);
+      expect(
+        find.text(
+          'Failed to load persisted legacy fallback content for this session.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('broken fallback read'), findsOneWidget);
+      expect(find.text('Checking legacy fallback'), findsNothing);
+
+      await tester.tap(find.text('Legacy fallback failed'));
+      await tester.pumpAndSettle();
+
+      final bottomBar = tester.widget<ReaderBottomBar>(
+        find.byType(ReaderBottomBar),
+      );
+      expect(bottomBar.title, 'Legacy fallback failed');
+      expect(
+        bottomBar.subtitle,
+        'Failed to load persisted legacy fallback content for this session.',
+      );
+
+      await tester.tap(find.byIcon(Icons.menu));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Legacy fallback content failed to load for this session.'),
+        findsOneWidget,
+      );
+      expect(find.text('Legacy fallback load failed'), findsOneWidget);
+      expect(
+        find.text(
+          'Failed to load persisted legacy fallback content for this session.',
+        ),
+        findsWidgets,
+      );
+      expect(find.textContaining('broken fallback read'), findsWidgets);
+    },
+  );
 }
 
 class _FakeReaderRepository implements BookRepository {
@@ -363,6 +596,7 @@ class _FakeReaderRepository implements BookRepository {
     required this.documents,
     required this.tocItems,
     this.initialProgress,
+    this.loadChapters,
   }) : v2Progress = initialProgress;
 
   final Book book;
@@ -370,6 +604,7 @@ class _FakeReaderRepository implements BookRepository {
   final List<ReaderDocument> documents;
   final List<TocItem> tocItems;
   final ReadingProgressV2? initialProgress;
+  final Future<List<Chapter>> Function(String bookId)? loadChapters;
   ReadingProgressV2? v2Progress;
 
   int chapterReadCount = 0;
@@ -383,6 +618,9 @@ class _FakeReaderRepository implements BookRepository {
   @override
   Future<List<Chapter>> getChaptersByBookId(String bookId) async {
     chapterReadCount += 1;
+    if (loadChapters != null) {
+      return loadChapters!(bookId);
+    }
     return chapters;
   }
 
@@ -477,6 +715,20 @@ class _FakeReaderRepository implements BookRepository {
     required List<ReaderDocument> documents,
     required List<TocItem> tocItems,
     ReadingProgressV2? initialProgress,
+  }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<bool> supportsReadyPreservingRefresh(String bookId) async {
+    return book.id == bookId && book.usesV2Navigation && chapters.isEmpty;
+  }
+
+  @override
+  Future<void> refreshNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
   }) async {
     throw UnimplementedError();
   }

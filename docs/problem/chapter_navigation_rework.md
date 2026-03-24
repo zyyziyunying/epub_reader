@@ -8,8 +8,13 @@ Date: 2026-03-22
 
 - [`archive/chapter_navigation_rework_blockers.md`](./archive/chapter_navigation_rework_blockers.md)
 - [`archive/chapter_navigation_rework_phase1_readiness_blockers.md`](./archive/chapter_navigation_rework_phase1_readiness_blockers.md)
+- [`chapter_navigation_rework_step6_v2_only_ready_blockers.md`](./chapter_navigation_rework_step6_v2_only_ready_blockers.md)
 
-截至 2026-03-20，本轮 readiness blocker 已全部关闭并归档。本文恢复为可直接实施的 Phase 1 约束文档；若后续再发现新的方案级空洞，必须先在 `docs/problem/` 补新的 blocker 文档，再继续实现。
+截至 2026-03-20，本轮 readiness blocker 已全部关闭并归档。本文恢复为可直接实施的 Phase 1 约束文档。
+
+截至 2026-03-23，Step 6 新增的专项 blocker 已完成最小收口：V2-only `ready` 书的回退 / 恢复链路不再复用 legacy 状态机，而是走独立的“保持 `ready` 可读的原位刷新”入口，详见 [`./chapter_navigation_rework_step6_v2_only_ready_blockers.md`](./chapter_navigation_rework_step6_v2_only_ready_blockers.md)。后续不得继续为这类书补 `legacy_pending / rebuilding / failed` 的新调用点。
+
+若后续再发现新的方案级空洞，必须先在 `docs/problem/` 补新的 blocker 文档，再继续实现。
 
 ## 文档定位
 
@@ -286,6 +291,8 @@ Phase 1 的目录 UI 不直接消费原始 `TocItem[]`，而是派生 `DocumentN
 
 - 旧书在数据库升级后统一初始化为 `navigation_data_version = 0`、`navigation_rebuild_state = legacy_pending`
 - Phase 1 上线后的新导入书籍，不应先落到 legacy 状态；要么与 V2 数据一起原子写入为 `ready`，要么整次导入失败
+- 对“新导入后直接 `ready` 且未持久化 legacy `chapters`”的 V2-only 书籍，在提供新的回退方案前，不得复用 `legacy_pending / rebuilding / failed` 作为降级读取链路；否则当前会话会落到空 legacy fallback
+- 这类书若未来需要重建或恢复，必须走独立的“保持 `ready` 可读的原位刷新”链路；不得把该链路偷渡回 legacy 状态机
 
 ### 切换状态机
 
@@ -305,7 +312,7 @@ Phase 1 的目录 UI 不直接消费原始 `TocItem[]`，而是派生 `DocumentN
    说明：V2 数据已完整提交并正式启用
    读取链路：阅读器只能走 V2 数据链路，不再混读 legacy `chapters`
    进入条件：一次书籍级原子事务成功写入完整 V2 数据并提交
-   离开条件：后续若 `navigation_data_version` 升级，需要显式清空 V2 并重新转入 `legacy_pending`
+   离开条件：后续若 `navigation_data_version` 升级，需要显式清空 V2 并重新转入 `legacy_pending`；但对未持久化 legacy `chapters` 的 V2-only 书籍，不得直接走这条降级路径，这类恢复必须走独立的 `ready-preserving refresh`，详见 [`./chapter_navigation_rework_step6_v2_only_ready_blockers.md`](./chapter_navigation_rework_step6_v2_only_ready_blockers.md)
 4. `failed`
    说明：最近一次重建失败
    读取链路：继续走 Phase 0 / legacy 数据链路

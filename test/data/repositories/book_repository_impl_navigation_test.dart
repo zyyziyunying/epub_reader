@@ -5,6 +5,7 @@ import 'package:epub_reader/data/datasources/local/database.dart';
 import 'package:epub_reader/data/repositories/book_repository_impl.dart';
 import 'package:epub_reader/domain/entities/book.dart';
 import 'package:epub_reader/domain/entities/book_reading_data_source.dart';
+import 'package:epub_reader/domain/entities/chapter.dart';
 import 'package:epub_reader/domain/entities/navigation_rebuild_state.dart';
 import 'package:epub_reader/domain/entities/reading_progress_v2.dart';
 import 'package:epub_reader/domain/entities/reader_document.dart';
@@ -101,17 +102,20 @@ void main() {
     test(
       'writes ready V2 data and resetNavigationDataToLegacy removes it',
       () async {
-        await repository.insertBook(_book(existingBookId));
+        await repository.insertBook(
+          _book(existingBookId).copyWith(totalChapters: 99),
+        );
+        await repository.insertChapter(_legacyChapter(existingBookId, 0));
 
         await repository.saveNavigationDataV2Ready(
           bookId: existingBookId,
-          documents: _documents(existingBookId),
-          tocItems: _tocItems(existingBookId),
+          documents: _documentsWithCount(existingBookId, 3),
+          tocItems: _tocItemsWithCount(existingBookId, 3),
           initialProgress: _progress(
             existingBookId,
-            documentIndex: 1,
+            documentIndex: 2,
             documentProgress: 1.2,
-            tocItemId: '$existingBookId:toc_item:1',
+            tocItemId: '$existingBookId:toc_item:2',
           ),
         );
 
@@ -123,20 +127,24 @@ void main() {
           (await repository.getReaderDocumentsByBookId(
             existingBookId,
           )).map((document) => document.documentIndex),
-          orderedEquals([0, 1]),
+          orderedEquals([0, 1, 2]),
         );
         expect(
           (await repository.getTocItemsByBookId(
             existingBookId,
           )).map((tocItem) => tocItem.order),
-          orderedEquals([0, 1]),
+          orderedEquals([0, 1, 2]),
         );
 
         final progress = await repository.getReadingProgressV2(existingBookId);
         expect(progress, isNotNull);
-        expect(progress!.documentIndex, 1);
+        expect(progress!.documentIndex, 2);
         expect(progress.documentProgress, 1.0);
-        expect(progress.tocItemId, '$existingBookId:toc_item:1');
+        expect(progress.tocItemId, '$existingBookId:toc_item:2');
+
+        final readyBook = await repository.getBookById(existingBookId);
+        expect(readyBook, isNotNull);
+        expect(readyBook!.totalChapters, 3);
 
         final failedAt = DateTime.fromMillisecondsSinceEpoch(1234);
         await repository.resetNavigationDataToLegacy(
@@ -165,9 +173,263 @@ void main() {
     );
 
     test(
+      'rejects legacy downgrade entrypoints for ready V2-only books without fallback content',
+      () async {
+        await repository.insertBook(_book(existingBookId));
+        await repository.saveNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: _documents(existingBookId),
+          tocItems: _tocItems(existingBookId),
+        );
+
+        await expectLater(
+          repository.markNavigationRebuildInProgress(existingBookId),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('Cannot downgrade ready V2-only book'),
+            ),
+          ),
+        );
+
+        await expectLater(
+          repository.resetNavigationDataToLegacy(
+            existingBookId,
+            rebuildState: NavigationRebuildState.failed,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('Cannot downgrade ready V2-only book'),
+            ),
+          ),
+        );
+
+        expect(
+          await repository.getBookReadingDataSource(existingBookId),
+          BookReadingDataSource.v2,
+        );
+        expect(await _countRows('reader_documents', existingBookId), 2);
+        expect(await _countRows('toc_items', existingBookId), 2);
+        expect(await _countRows('reading_progress_v2', existingBookId), 1);
+
+        final book = await repository.getBookById(existingBookId);
+        expect(book, isNotNull);
+        expect(book!.usesV2Navigation, isTrue);
+        expect(book.navigationRebuildFailedAt, isNull);
+      },
+    );
+
+    test(
+      'refreshNavigationDataV2Ready keeps ready books readable and applies refreshed payload',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.6,
+            tocItemId: '$existingBookId:toc_item:1',
+            anchor: 'old-anchor',
+          ),
+        );
+
+        await repository.refreshNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: _refreshedDocuments(existingBookId),
+          tocItems: _refreshedTocItems(existingBookId),
+        );
+
+        final book = await repository.getBookById(existingBookId);
+        expect(book, isNotNull);
+        expect(book!.usesV2Navigation, isTrue);
+        expect(book.navigationRebuildState, NavigationRebuildState.ready);
+        expect(book.navigationRebuildFailedAt, isNull);
+        expect(book.totalChapters, 3);
+
+        final documents = await repository.getReaderDocumentsByBookId(
+          existingBookId,
+        );
+        expect(
+          documents.map((document) => document.title),
+          orderedEquals([
+            'Refreshed Document 0',
+            'Refreshed Document 1',
+            'Refreshed Document 2',
+          ]),
+        );
+        expect(
+          (await repository.getTocItemsByBookId(
+            existingBookId,
+          )).map((tocItem) => tocItem.order),
+          orderedEquals([0, 1, 2]),
+        );
+
+        final progress = await repository.getReadingProgressV2(existingBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 1);
+        expect(progress.documentProgress, 0.6);
+        expect(progress.tocItemId, isNull);
+        expect(progress.anchor, isNull);
+      },
+    );
+
+    test(
+      'refreshNavigationDataV2Ready rejects ready books that still have persisted legacy fallback content',
+      () async {
+        await repository.insertBook(_book(existingBookId));
+        await repository.insertChapter(_legacyChapter(existingBookId, 0));
+        await repository.saveNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: _documents(existingBookId),
+          tocItems: _tocItems(existingBookId),
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.35,
+            tocItemId: '$existingBookId:toc_item:1',
+            anchor: 'old-anchor',
+          ),
+        );
+
+        expect(
+          await repository.supportsReadyPreservingRefresh(existingBookId),
+          isFalse,
+        );
+
+        await expectLater(
+          repository.refreshNavigationDataV2Ready(
+            bookId: existingBookId,
+            documents: _refreshedDocuments(existingBookId),
+            tocItems: _refreshedTocItems(existingBookId),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('ready V2-only books without persisted legacy fallback'),
+            ),
+          ),
+        );
+
+        final book = await repository.getBookById(existingBookId);
+        expect(book, isNotNull);
+        expect(book!.usesV2Navigation, isTrue);
+        expect(book.navigationRebuildState, NavigationRebuildState.ready);
+
+        final documents = await repository.getReaderDocumentsByBookId(
+          existingBookId,
+        );
+        expect(
+          documents.map((document) => document.title),
+          orderedEquals(['Document 0', 'Document 1']),
+        );
+
+        final progress = await repository.getReadingProgressV2(existingBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 1);
+        expect(progress.documentProgress, 0.35);
+        expect(progress.tocItemId, '$existingBookId:toc_item:1');
+        expect(progress.anchor, 'old-anchor');
+      },
+    );
+
+    test(
+      'refreshNavigationDataV2Ready rolls back to the previous ready payload when the refresh write fails',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.3,
+            tocItemId: '$existingBookId:toc_item:1',
+            anchor: 'old-anchor',
+          ),
+        );
+
+        final db = await AppDatabase.database;
+        await db.execute('''
+          CREATE TRIGGER fail_ready_refresh_update
+          BEFORE UPDATE OF navigation_data_version, navigation_rebuild_state, navigation_rebuild_failed_at ON books
+          WHEN OLD.id = '$existingBookId'
+          BEGIN
+            SELECT RAISE(ABORT, 'forced ready refresh failure');
+          END;
+        ''');
+
+        await expectLater(
+          repository.refreshNavigationDataV2Ready(
+            bookId: existingBookId,
+            documents: _refreshedDocuments(existingBookId),
+            tocItems: _refreshedTocItems(existingBookId),
+          ),
+          throwsA(isA<DatabaseException>()),
+        );
+
+        final book = await repository.getBookById(existingBookId);
+        expect(book, isNotNull);
+        expect(book!.usesV2Navigation, isTrue);
+        expect(book.navigationRebuildState, NavigationRebuildState.ready);
+        expect(book.navigationRebuildFailedAt, isNull);
+        expect(book.totalChapters, 2);
+
+        final documents = await repository.getReaderDocumentsByBookId(
+          existingBookId,
+        );
+        expect(
+          documents.map((document) => document.title),
+          orderedEquals(['Document 0', 'Document 1']),
+        );
+
+        final progress = await repository.getReadingProgressV2(existingBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 1);
+        expect(progress.documentProgress, 0.3);
+        expect(progress.tocItemId, '$existingBookId:toc_item:1');
+        expect(progress.anchor, 'old-anchor');
+      },
+    );
+
+    test(
+      'refreshNavigationDataV2Ready falls back to initial progress when the old documentIndex is out of range',
+      () async {
+        await _seedReadyNavigationData(
+          repository,
+          existingBookId,
+          initialProgress: _progress(
+            existingBookId,
+            documentIndex: 1,
+            documentProgress: 0.9,
+            tocItemId: '$existingBookId:toc_item:1',
+            anchor: 'old-anchor',
+          ),
+        );
+
+        await repository.refreshNavigationDataV2Ready(
+          bookId: existingBookId,
+          documents: [_refreshedDocument(existingBookId, 0)],
+          tocItems: [_refreshedTocItem(existingBookId, 0, 0)],
+        );
+
+        final progress = await repository.getReadingProgressV2(existingBookId);
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 0);
+        expect(progress.documentProgress, 0);
+        expect(progress.tocItemId, isNull);
+        expect(progress.anchor, isNull);
+      },
+    );
+
+    test(
       'updates V2 reading progress only while the book remains ready',
       () async {
         await repository.insertBook(_book(existingBookId));
+        await repository.insertChapter(_legacyChapter(existingBookId, 0));
         await repository.saveNavigationDataV2Ready(
           bookId: existingBookId,
           documents: _documents(existingBookId),
@@ -304,6 +566,7 @@ void main() {
         await _seedReadyNavigationData(
           repository,
           existingBookId,
+          seedLegacyFallbackChapter: true,
           initialProgress: _progress(
             existingBookId,
             documentIndex: 1,
@@ -339,6 +602,7 @@ void main() {
 
     test('markNavigationRebuildInProgress keeps V2 unreadable', () async {
       await repository.insertBook(_book(existingBookId));
+      await repository.insertChapter(_legacyChapter(existingBookId, 0));
       await repository.saveNavigationDataV2Ready(
         bookId: existingBookId,
         documents: _documents(existingBookId),
@@ -368,6 +632,7 @@ void main() {
       'blocks stale V2 row reads when rebuild starts right before the row query',
       () async {
         await repository.insertBook(_book(existingBookId));
+        await repository.insertChapter(_legacyChapter(existingBookId, 0));
         await repository.saveNavigationDataV2Ready(
           bookId: existingBookId,
           documents: _documents(existingBookId),
@@ -433,11 +698,12 @@ void main() {
         const importedBookId = 'book-import';
         await repository.importBookWithNavigationDataV2Ready(
           book: _book(importedBookId).copyWith(
+            totalChapters: 99,
             navigationDataVersion: Book.v2NavigationDataVersion,
             navigationRebuildState: NavigationRebuildState.ready,
           ),
-          documents: _documents(importedBookId),
-          tocItems: _tocItems(importedBookId),
+          documents: _documentsWithCount(importedBookId, 3),
+          tocItems: _tocItemsWithCount(importedBookId, 3),
         );
 
         final book = await repository.getBookById(importedBookId);
@@ -445,6 +711,7 @@ void main() {
         expect(book!.navigationDataVersion, Book.v2NavigationDataVersion);
         expect(book.navigationRebuildState, NavigationRebuildState.ready);
         expect(book.navigationRebuildFailedAt, isNull);
+        expect(book.totalChapters, 3);
         expect(
           await repository.getBookReadingDataSource(importedBookId),
           BookReadingDataSource.v2,
@@ -455,13 +722,13 @@ void main() {
           (await repository.getReaderDocumentsByBookId(
             importedBookId,
           )).map((document) => document.documentIndex),
-          orderedEquals([0, 1]),
+          orderedEquals([0, 1, 2]),
         );
         expect(
           (await repository.getTocItemsByBookId(
             importedBookId,
           )).map((tocItem) => tocItem.order),
-          orderedEquals([0, 1]),
+          orderedEquals([0, 1, 2]),
         );
 
         final progress = await repository.getReadingProgressV2(importedBookId);
@@ -707,9 +974,13 @@ Future<int> _countRows(String tableName, String bookId) async {
 Future<void> _seedReadyNavigationData(
   BookRepositoryImpl repository,
   String bookId, {
+  bool seedLegacyFallbackChapter = false,
   ReadingProgressV2? initialProgress,
 }) async {
   await repository.insertBook(_book(bookId));
+  if (seedLegacyFallbackChapter) {
+    await repository.insertChapter(_legacyChapter(bookId, 0));
+  }
   await repository.saveNavigationDataV2Ready(
     bookId: bookId,
     documents: _documents(bookId),
@@ -738,11 +1009,25 @@ Book _book(String id) {
   );
 }
 
+Chapter _legacyChapter(String bookId, int index) {
+  return Chapter(
+    id: '$bookId:chapter:$index',
+    bookId: bookId,
+    index: index,
+    title: 'Legacy Chapter $index',
+    content: '<html><body><p>Legacy fallback $index</p></body></html>',
+  );
+}
+
 List<ReaderDocument> _documents(String bookId) {
-  return [
-    _document(bookId, 0, 'OPS/Text/ch1.xhtml'),
-    _document(bookId, 1, 'OPS/Text/ch2.xhtml'),
-  ];
+  return _documentsWithCount(bookId, 2);
+}
+
+List<ReaderDocument> _documentsWithCount(String bookId, int count) {
+  return List.generate(
+    count,
+    (index) => _document(bookId, index, 'OPS/Text/ch${index + 1}.xhtml'),
+  );
 }
 
 ReaderDocument _document(String bookId, int index, String fileName) {
@@ -758,10 +1043,14 @@ ReaderDocument _document(String bookId, int index, String fileName) {
 }
 
 List<TocItem> _tocItems(String bookId) {
-  return [
-    _tocItem(bookId, 0, targetDocumentIndex: 0),
-    _tocItem(bookId, 1, targetDocumentIndex: 1),
-  ];
+  return _tocItemsWithCount(bookId, 2);
+}
+
+List<TocItem> _tocItemsWithCount(String bookId, int count) {
+  return List.generate(
+    count,
+    (index) => _tocItem(bookId, index, targetDocumentIndex: index),
+  );
 }
 
 TocItem _tocItem(
@@ -790,13 +1079,56 @@ ReadingProgressV2 _progress(
   int documentIndex = 0,
   double documentProgress = 0.5,
   String? tocItemId,
+  String? anchor,
 }) {
   return ReadingProgressV2(
     bookId: bookId,
     documentIndex: documentIndex,
     documentProgress: documentProgress,
     tocItemId: tocItemId,
-    anchor: null,
+    anchor: anchor,
     updatedAt: DateTime.utc(2026, 3, 22),
+  );
+}
+
+List<ReaderDocument> _refreshedDocuments(String bookId) {
+  return [
+    _refreshedDocument(bookId, 0),
+    _refreshedDocument(bookId, 1),
+    _refreshedDocument(bookId, 2),
+  ];
+}
+
+ReaderDocument _refreshedDocument(String bookId, int index) {
+  return ReaderDocument(
+    id: '$bookId:refreshed_reader_document:$index',
+    bookId: bookId,
+    documentIndex: index,
+    fileName: 'OPS/Refresh/part${index + 1}.xhtml',
+    title: 'Refreshed Document $index',
+    htmlContent:
+        '<html><head><title>Refreshed Document $index</title></head><body></body></html>',
+  );
+}
+
+List<TocItem> _refreshedTocItems(String bookId) {
+  return [
+    _refreshedTocItem(bookId, 0, 0),
+    _refreshedTocItem(bookId, 1, 1),
+    _refreshedTocItem(bookId, 2, 2),
+  ];
+}
+
+TocItem _refreshedTocItem(String bookId, int order, int targetDocumentIndex) {
+  return TocItem(
+    id: '$bookId:refreshed_toc_item:$order',
+    bookId: bookId,
+    title: 'Refreshed TOC $order',
+    order: order,
+    depth: 0,
+    parentId: null,
+    fileName: 'OPS/Refresh/part${targetDocumentIndex + 1}.xhtml',
+    anchor: null,
+    targetDocumentIndex: targetDocumentIndex,
   );
 }

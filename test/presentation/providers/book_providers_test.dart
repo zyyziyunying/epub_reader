@@ -262,6 +262,17 @@ class _CapturingBookRepository implements BookRepository {
   }) async => throw UnimplementedError();
 
   @override
+  Future<bool> supportsReadyPreservingRefresh(String bookId) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> refreshNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+  }) async => throw UnimplementedError();
+
+  @override
   Future<void> markNavigationRebuildInProgress(String bookId) async =>
       throw UnimplementedError();
 

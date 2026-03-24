@@ -2,16 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../../../domain/entities/book.dart';
 import '../../../../domain/entities/document_nav_item.dart';
+import '../legacy_fallback_status.dart';
 
 class ReaderDrawer extends StatelessWidget {
   const ReaderDrawer.legacy({
     super.key,
     required this.book,
-    this.legacyContentCount,
+    required LegacyFallbackStatus legacyFallbackStatus,
   }) : _navItems = null,
        _currentDocumentIndex = null,
        _hasPhase2OnlyToc = false,
-       _onDocumentSelected = null;
+       _onDocumentSelected = null,
+       _legacyFallbackStatus = legacyFallbackStatus;
 
   const ReaderDrawer.v2({
     super.key,
@@ -24,14 +26,14 @@ class ReaderDrawer extends StatelessWidget {
        _currentDocumentIndex = currentDocumentIndex,
        _hasPhase2OnlyToc = hasPhase2OnlyToc,
        _onDocumentSelected = onDocumentSelected,
-       legacyContentCount = null;
+       _legacyFallbackStatus = null;
 
   final Book book;
-  final int? legacyContentCount;
   final List<DocumentNavItem>? _navItems;
   final int? _currentDocumentIndex;
   final bool _hasPhase2OnlyToc;
   final ValueChanged<int>? _onDocumentSelected;
+  final LegacyFallbackStatus? _legacyFallbackStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -71,14 +73,14 @@ class ReaderDrawer extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     navItems == null
-                        ? 'Legacy fallback mode keeps continuous reading available while document navigation is unavailable.'
+                        ? _legacyFallbackStatus!.drawerHeaderMessage
                         : 'Phase 1 navigation works at the document level.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
                   Text(
                     navItems == null
-                        ? _legacyContentSummary
+                        ? _legacyFallbackStatus!.drawerContentSummary
                         : '${navItems.length} documents',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
@@ -123,26 +125,23 @@ class ReaderDrawer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Navigation unavailable',
+            _legacyFallbackStatus!.panelTitle,
             style: Theme.of(
               context,
             ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
-            'This session is using legacy fallback content. Reopen the book after a successful rebuild to use document navigation.',
+            _legacyFallbackStatus.panelMessage,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+          if (_legacyFallbackStatus.diagnosticDetails case final details?) ...[
+            const SizedBox(height: 8),
+            Text(details, style: Theme.of(context).textTheme.bodySmall),
+          ],
         ],
       ),
     );
-  }
-
-  String get _legacyContentSummary {
-    if (legacyContentCount == null) {
-      return 'Legacy fallback content available';
-    }
-    return '$legacyContentCount legacy content items';
   }
 
   Widget _buildDocumentNavList(

@@ -331,23 +331,88 @@ class BookRepositoryImpl implements BookRepository {
   }
 
   @override
+  Future<bool> supportsReadyPreservingRefresh(String bookId) async {
+    final db = await AppDatabase.database;
+    final book = await _getBookByIdFromExecutor(db, bookId);
+    if (book == null || !book.usesV2Navigation) {
+      return false;
+    }
+    return !(await _hasPersistedLegacyFallbackContent(db, bookId));
+  }
+
+  @override
+  Future<void> refreshNavigationDataV2Ready({
+    required String bookId,
+    required List<ReaderDocument> documents,
+    required List<TocItem> tocItems,
+  }) async {
+    final db = await AppDatabase.database;
+
+    await db.transaction((txn) async {
+      final book = await _getBookByIdFromExecutor(txn, bookId);
+      if (book == null) {
+        throw StateError(
+          'Book not found while refreshing ready V2 navigation: $bookId',
+        );
+      }
+      if (!book.usesV2Navigation) {
+        throw StateError(
+          'refreshNavigationDataV2Ready requires an existing ready V2 book: $bookId',
+        );
+      }
+      if (await _hasPersistedLegacyFallbackContent(txn, bookId)) {
+        throw StateError(
+          'refreshNavigationDataV2Ready only supports ready V2-only books without persisted legacy fallback content: $bookId',
+        );
+      }
+
+      final currentProgress = await _getReadingProgressV2FromExecutor(
+        txn,
+        bookId,
+      );
+      final inheritedProgress = _inheritProgressForReadyRefresh(
+        bookId: bookId,
+        documentCount: documents.length,
+        currentProgress: currentProgress,
+      );
+      final progress = _prepareNavigationDataV2Ready(
+        bookId: bookId,
+        documents: documents,
+        tocItems: tocItems,
+        initialProgress: inheritedProgress,
+      );
+
+      await _writeNavigationDataV2Ready(
+        txn,
+        bookId: bookId,
+        documents: documents,
+        tocItems: tocItems,
+        progress: progress,
+      );
+    });
+  }
+
+  @override
   Future<void> markNavigationRebuildInProgress(String bookId) async {
     final db = await AppDatabase.database;
-    final updatedRows = await db.update(
-      'books',
-      {
-        'navigation_data_version': Book.legacyNavigationDataVersion,
-        'navigation_rebuild_state': NavigationRebuildState.rebuilding.dbValue,
-        'navigation_rebuild_failed_at': null,
-      },
-      where: 'id = ?',
-      whereArgs: [bookId],
-    );
-    if (updatedRows != 1) {
-      throw StateError(
-        'Book not found while marking rebuild in progress: $bookId',
+    await db.transaction((txn) async {
+      await _assertLegacyFallbackAvailableForDowngrade(txn, bookId);
+      final updatedRows = await txn.update(
+        'books',
+        {
+          'navigation_data_version': Book.legacyNavigationDataVersion,
+          'navigation_rebuild_state': NavigationRebuildState.rebuilding.dbValue,
+          'navigation_rebuild_failed_at': null,
+        },
+        where: 'id = ?',
+        whereArgs: [bookId],
       );
-    }
+      if (updatedRows != 1) {
+        throw StateError(
+          'Book not found while marking rebuild in progress: $bookId',
+        );
+      }
+    });
   }
 
   @override
@@ -369,6 +434,7 @@ class BookRepositoryImpl implements BookRepository {
     final db = await AppDatabase.database;
 
     await db.transaction((txn) async {
+      await _assertLegacyFallbackAvailableForDowngrade(txn, bookId);
       await _deleteNavigationDataV2(txn, bookId);
       final updatedRows = await txn.update(
         'books',
@@ -456,6 +522,7 @@ class BookRepositoryImpl implements BookRepository {
     final updatedRows = await executor.update(
       'books',
       {
+        'total_chapters': documents.length,
         'navigation_data_version': Book.v2NavigationDataVersion,
         'navigation_rebuild_state': NavigationRebuildState.ready.dbValue,
         'navigation_rebuild_failed_at': null,
@@ -509,6 +576,66 @@ class BookRepositoryImpl implements BookRepository {
       return null;
     }
     return Book.fromMap(maps.first);
+  }
+
+  Future<ReadingProgressV2?> _getReadingProgressV2FromExecutor(
+    DatabaseExecutor executor,
+    String bookId,
+  ) async {
+    final maps = await executor.query(
+      'reading_progress_v2',
+      where: 'book_id = ?',
+      whereArgs: [bookId],
+      limit: 1,
+    );
+    if (maps.isEmpty) {
+      return null;
+    }
+    return ReadingProgressV2.fromMap(maps.first);
+  }
+
+  ReadingProgressV2 _inheritProgressForReadyRefresh({
+    required String bookId,
+    required int documentCount,
+    required ReadingProgressV2? currentProgress,
+  }) {
+    if (currentProgress == null) {
+      return ReadingProgressV2.initial(bookId);
+    }
+
+    final documentIndex = currentProgress.documentIndex;
+    if (documentIndex < 0 || documentIndex >= documentCount) {
+      return ReadingProgressV2.initial(bookId);
+    }
+
+    return ReadingProgressV2(
+      bookId: bookId,
+      documentIndex: documentIndex,
+      documentProgress: currentProgress.documentProgress
+          .clamp(0.0, 1.0)
+          .toDouble(),
+      tocItemId: null,
+      anchor: null,
+      updatedAt: currentProgress.updatedAt,
+    );
+  }
+
+  Future<void> _assertLegacyFallbackAvailableForDowngrade(
+    DatabaseExecutor executor,
+    String bookId,
+  ) async {
+    final book = await _getBookByIdFromExecutor(executor, bookId);
+    if (book == null || !book.usesV2Navigation) {
+      return;
+    }
+
+    if (await _hasPersistedLegacyFallbackContent(executor, bookId)) {
+      return;
+    }
+
+    throw StateError(
+      'Cannot downgrade ready V2-only book $bookId to legacy fallback without persisted legacy content.',
+    );
   }
 
   Future<void> _validatePersistedProgressV2(
@@ -576,6 +703,26 @@ class BookRepositoryImpl implements BookRepository {
         'ReadingProgressV2.tocItemId must point to the same documentIndex when the TOC item is directly mappable.',
       );
     }
+  }
+
+  Future<bool> _hasPersistedLegacyFallbackContent(
+    DatabaseExecutor executor,
+    String bookId,
+  ) async {
+    return (await _persistedLegacyFallbackContentCount(executor, bookId)) > 0;
+  }
+
+  Future<int> _persistedLegacyFallbackContentCount(
+    DatabaseExecutor executor,
+    String bookId,
+  ) async {
+    return Sqflite.firstIntValue(
+          await executor.rawQuery(
+            'SELECT COUNT(*) FROM chapters WHERE book_id = ?',
+            [bookId],
+          ),
+        ) ??
+        0;
   }
 
   Map<int, ReaderDocument> _validateReaderDocuments(

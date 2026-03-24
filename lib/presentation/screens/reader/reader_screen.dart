@@ -6,11 +6,13 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../domain/entities/book.dart';
 import '../../../domain/entities/book_reading_data_source.dart';
+import '../../../domain/entities/chapter.dart';
 import '../../../domain/entities/document_nav_item.dart';
 import '../../../domain/entities/reading_progress_v2.dart';
 import '../../../domain/entities/reading_settings.dart';
 import '../../../domain/repositories/book_repository.dart';
 import '../../providers/book_providers.dart';
+import 'legacy_fallback_status.dart';
 import 'widgets/legacy_chapter_content.dart';
 import 'widgets/reader_bottom_bar.dart';
 import 'widgets/reader_document_content.dart';
@@ -18,6 +20,7 @@ import 'widgets/reader_drawer.dart';
 import 'widgets/reader_settings_sheet.dart';
 import 'widgets/reader_top_bar.dart';
 
+//TODO 拆分
 class ReaderScreen extends ConsumerStatefulWidget {
   const ReaderScreen({super.key, required this.book});
 
@@ -116,15 +119,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return dataSourceAsync.when(
       data: (dataSource) {
         if (!dataSource.usesV2) {
-          final legacyContentCount = ref
-              .watch(legacyChaptersProvider(widget.book.id))
-              .maybeWhen(
-                data: (legacyChapters) => legacyChapters.length,
-                orElse: () => null,
-              );
+          final legacyFallbackStatus = _legacyFallbackStatus(
+            ref.watch(legacyChaptersProvider(widget.book.id)),
+          );
           return ReaderDrawer.legacy(
             book: widget.book,
-            legacyContentCount: legacyContentCount,
+            legacyFallbackStatus: legacyFallbackStatus,
           );
         }
 
@@ -169,10 +169,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final legacyContentAsync = ref.watch(
       legacyChaptersProvider(widget.book.id),
     );
+    final legacyFallbackStatus = _legacyFallbackStatus(legacyContentAsync);
     return legacyContentAsync.when(
       data: (legacyContent) {
         if (legacyContent.isEmpty) {
-          return const Center(child: Text('No legacy content found'));
+          return _buildLegacyFallbackMessageContent(legacyFallbackStatus);
         }
 
         return ListView.builder(
@@ -187,8 +188,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) =>
-          Center(child: Text('Error loading legacy content: $error')),
+      error: (_, _) => _buildLegacyFallbackMessageContent(legacyFallbackStatus),
     );
   }
 
@@ -265,14 +265,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       left: 0,
       right: 0,
       child: dataSourceAsync.when(
-        data: (dataSource) => dataSource.usesV2
-            ? _buildV2BottomBar()
-            : ReaderBottomBar(
-                title: 'Legacy fallback mode',
-                subtitle:
-                    'Continuous reading stays available in this session while document navigation is unavailable.',
-                onSettingsPressed: _showSettings,
-              ),
+        data: (dataSource) {
+          if (dataSource.usesV2) {
+            return _buildV2BottomBar();
+          }
+
+          final legacyFallbackStatus = _legacyFallbackStatus(
+            ref.watch(legacyChaptersProvider(widget.book.id)),
+          );
+
+          return ReaderBottomBar(
+            title: legacyFallbackStatus.bottomBarTitle,
+            subtitle: legacyFallbackStatus.bottomBarSubtitle,
+            onSettingsPressed: _showSettings,
+          );
+        },
         loading: () => ReaderBottomBar(
           title: 'Loading reader',
           subtitle: 'Resolving reading data source...',
@@ -323,6 +330,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         title: 'Navigation unavailable',
         subtitle: 'Failed to load document navigation.',
         onSettingsPressed: _showSettings,
+      ),
+    );
+  }
+
+  LegacyFallbackStatus _legacyFallbackStatus(
+    AsyncValue<List<Chapter>> legacyContentAsync,
+  ) {
+    return legacyContentAsync.when(
+      data: (legacyContent) => legacyContent.isEmpty
+          ? const LegacyFallbackStatus.empty()
+          : LegacyFallbackStatus.available(legacyContent.length),
+      loading: () => const LegacyFallbackStatus.loading(),
+      error: (error, _) => LegacyFallbackStatus.error(error),
+    );
+  }
+
+  Widget _buildLegacyFallbackMessageContent(LegacyFallbackStatus status) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(status.panelTitle, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            Text(status.panelMessage, textAlign: TextAlign.center),
+            if (status.diagnosticDetails case final details?) ...[
+              const SizedBox(height: 12),
+              Text(details, textAlign: TextAlign.center),
+            ],
+          ],
+        ),
       ),
     );
   }

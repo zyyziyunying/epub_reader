@@ -1,6 +1,6 @@
 # Reader Chapter Navigation Rewrite Progress
 
-Date: 2026-03-23
+Date: 2026-03-24
 
 ## 文档定位
 
@@ -11,9 +11,9 @@ Date: 2026-03-23
 
 ## 当前阶段结论
 
-- 当前代码已完成 Step 0、Step 1、Step 2、Step 3、Step 4 和 Step 5；Step 6 已开始
+- 当前代码已完成 Step 0、Step 1、Step 2、Step 3、Step 4 和 Step 5；Step 6 仍在推进，但本轮已完成 V2-only `ready` refresh blocker 收口
 - 用户可见阅读体验现已按阅读会话数据源分流：`ready` 会话走 V2 `ReaderDocument[]` 渲染与文档级导航；`legacy_pending / rebuilding / failed` 或当前会话保持 legacy 的场景，仍继续走 Phase 0 / legacy 链路
-- 当前已确认：
+  - 当前已确认：
   - `bookReadingDataSourceProvider` 仍承担“阅读会话读取选择器”职责，并按阅读页实例建立真实会话边界：旧书首次打开会触发后台重建，`rebuilding` 中断会先回退到 `legacy_pending` 再重试，当前会话保持 legacy，不做热切换；同一进程内关闭再打开同一本书时会重新判定，而不是复用首次 `bookId` 缓存
   - repository 读取侧仍以 `navigation_data_version == 2 && navigation_rebuild_state == ready` 作为 V2 可读前提
   - `saveNavigationDataV2Ready` 现在才可近似视为“最小完整 V2 ready 数据”的入口，而不是仅仅“能写进 SQL 的 payload”
@@ -23,6 +23,12 @@ Date: 2026-03-23
     - legacy 会话的目录抽屉不再把 `Chapter` 渲染成目录列表，而是仅显示 fallback 说明
     - 新导入 `ready` 书的 `Book.totalChapters` 已改为采用 V2 `ReaderDocument[]` 数量，不再沿用 legacy `parsedEpub.chapters.length`
     - legacy drawer 的数量提示已改为使用当前会话实际加载到的 fallback 正文数，而不是 `book.totalChapters`
+    - repository 的官方降级入口现已拒绝把“无 legacy fallback 正文的 `ready` 书”切回 `legacy_pending / rebuilding / failed`
+    - legacy fallback 正文为空时，阅读页正文区、底栏和抽屉都会显示恢复提示，不再误报“continuous reading available”
+  - Step 6 已正式补出专项 blocker：V2-only `ready` 书若未来需要恢复或重建，不再设计为降回 legacy，而应走独立的“保持 `ready` 可读的原位刷新”链路
+  - coordinator / repository 已补出独立的 `ready-preserving refresh` 官方入口：刷新期间旧 V2 保持可读，成功后原子替换，失败时保持旧 V2 和 `ready` 状态不变
+  - `ready-preserving refresh` 现已补上显式能力判断与事务内断言，只允许“无 persisted legacy fallback 的 V2-only `ready` 书”进入该入口；focused tests 已覆盖拒绝旧 ready 书误用该入口
+  - legacy fallback UI 现已按 `loading / error / empty / available` 四态分流；focused widget tests 已覆盖 fallback 读取失败时正文区、底栏和抽屉的失败语义一致性
   - V2 阅读页现已只消费 `ReaderDocument[] + TocItem[]` 派生出的 `DocumentNavItem[]`，不再渲染原始 `TocItem` 行
   - V2 阅读页代码路径现已接入 `documentIndex + documentProgress` 的恢复与保存；focused tests 已覆盖 ready 会话内的恢复/保存、`AppLifecycleState.paused / hidden` flush，以及 legacy 会话不读不写 V2 进度
   - 旧书后台重建代码路径现已接入 legacy `chapterIndex + scrollPosition -> documentIndex + documentProgress` 的 best-effort 映射；focused tests 已覆盖唯一命中成功路径，以及 progress 缺失 / 映射 miss / 多文档歧义都不阻塞 `ready`
@@ -183,14 +189,11 @@ Date: 2026-03-23
 - 当前仍保留的 legacy 职责：
   - 旧书 `legacy_pending / rebuilding / failed` 会话的连续正文 fallback 渲染
   - 旧进度 `ReadingProgress` 与 `Chapter.content` 作为后台重建 best-effort 映射输入
+  - V2-only `ready` 书的刷新已切到独立入口；legacy 降级链路继续只服务仍有 fallback 正文的旧书状态机，详见 [`../problem/chapter_navigation_rework_step6_v2_only_ready_blockers.md`](../problem/chapter_navigation_rework_step6_v2_only_ready_blockers.md)
 
 ## 当前未完成切片
 
 - Step 6：legacy 导航职责清理仍在进行中；旧书 fallback 正文链路和 legacy 进度映射输入尚未清理
-
-## 剩余 Blocker
-
-- 当前无新增 blocker；后续主线已转入 Step 6 的 legacy 导航职责清理
 
 ## 当前可测试范围
 
@@ -201,6 +204,8 @@ Date: 2026-03-23
 - Step 4 的 V2 阅读页渲染、目录点击、Phase 2-only TOC 统一说明、上一章 / 下一章和 legacy fallback UI
 - Step 5 的 repository 侧 V2 progress 写入门控与引用校验、ready 会话内的 V2 进度恢复/保存、生命周期 flush、legacy 会话不读不写 V2 进度，以及 legacy -> V2 best-effort 映射的唯一命中 / 缺失 / miss / 歧义路径
 - Step 6 当前已落的小范围清理：新导入 `ready` 书不再写 legacy `chapters`，`Book.totalChapters` 已切到 V2 `ReaderDocument[]` 口径，legacy drawer 不再渲染 `Chapter` 目录列表且数量提示改为真实 fallback 正文数
+- Step 6 当前已落的 V2-only `ready` refresh 入口：刷新成功后保持 `ready` 并原子替换新 payload，刷新失败后旧 V2 仍可读，progress 只 best-effort 继承 `documentIndex + documentProgress`，且 repository / coordinator 会拒绝仍有 persisted legacy fallback 的 ready 书误走该入口
+- Step 6 当前已覆盖的 legacy fallback 失败语义：fallback 读取失败时，正文区、底栏和抽屉都会显式显示失败，不再误报“Checking / Loading”
 - `Book` 新状态字段、V2 表结构、repository 新接口的静态闭合情况
 
 ## 当前不可通过 UI 直接测试的范围
@@ -224,4 +229,4 @@ Date: 2026-03-23
    - 确认新导入 `ready` 书不会再额外生成 legacy `chapters`
    - 确认阅读页已切到 V2 `ReaderDocument[]` 渲染，目录抽屉只展示 `DocumentNavItem[]`
    - 确认目录点击和上一章 / 下一章按 `documentIndex` 生效
-4. 若后续继续推进 Step 6，应在 Step 5 进度语义已固定的前提下清理 legacy 导航职责，不要把 legacy 清理和现有进度回归混在同一批改动里
+4. 若后续继续推进 Step 6，应继续沿用现有 V2-only `ready` 原位刷新入口，再清理其他 legacy 导航职责；不要把 legacy 清理和现有进度回归混在同一批改动里
