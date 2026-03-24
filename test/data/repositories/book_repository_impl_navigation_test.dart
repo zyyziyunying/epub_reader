@@ -476,6 +476,22 @@ void main() {
       },
     );
 
+    test(
+      'legacy rebuild seed numeric parsers reject NaN before derive normalization',
+      () {
+        expect(
+          BookRepositoryImpl.tryReadLegacyRebuildScrollPositionForTest(
+            double.nan,
+          ),
+          isNull,
+        );
+        expect(
+          BookRepositoryImpl.tryReadLegacyRebuildUpdatedAtForTest(double.nan),
+          isNull,
+        );
+      },
+    );
+
     for (final scenario in [
       (
         description:
@@ -580,6 +596,209 @@ void main() {
             fileName: 'OPS/Text/ch2.xhtml',
             title: 'Document 1',
             htmlContent: '<html><body>Duplicate document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress scrollPosition is dirty',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 'not-a-number',
+            updatedAt: DateTime.utc(2026, 3, 22, 12).millisecondsSinceEpoch,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress scrollPosition is Infinity',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: double.infinity,
+            updatedAt: DateTime.utc(2026, 3, 22, 12).millisecondsSinceEpoch,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress scrollPosition is negative Infinity',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: double.negativeInfinity,
+            updatedAt: DateTime.utc(2026, 3, 22, 12).millisecondsSinceEpoch,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress updatedAt is dirty',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: 'not-a-timestamp',
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress updatedAt is Infinity',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: double.infinity,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress updatedAt is negative Infinity',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: double.negativeInfinity,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress updatedAt is out of range',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Matched document</body></html>'),
+          );
+          await _seedRawLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: 9223372036854775807,
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
           ),
         ],
       ),
@@ -1166,12 +1385,26 @@ Future<void> _seedLegacyReadingProgress(
   required double scrollPosition,
   required DateTime updatedAt,
 }) async {
+  await _seedRawLegacyReadingProgress(
+    bookId,
+    chapterIndex: chapterIndex,
+    scrollPosition: scrollPosition,
+    updatedAt: updatedAt.millisecondsSinceEpoch,
+  );
+}
+
+Future<void> _seedRawLegacyReadingProgress(
+  String bookId, {
+  required int chapterIndex,
+  required Object? scrollPosition,
+  required Object? updatedAt,
+}) async {
   final db = await AppDatabase.database;
   await db.insert('reading_progress', {
     'book_id': bookId,
     'chapter_index': chapterIndex,
     'scroll_position': scrollPosition,
-    'updated_at': updatedAt.millisecondsSinceEpoch,
+    'updated_at': updatedAt,
   });
 }
 

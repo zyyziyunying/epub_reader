@@ -1,4 +1,5 @@
 import 'package:sqflite/sqflite.dart';
+import 'package:meta/meta.dart';
 
 import '../../../domain/entities/book_reading_data_source.dart';
 import '../../../domain/entities/book.dart';
@@ -17,6 +18,16 @@ class BookRepositoryImpl implements BookRepository {
   }) : _beforeNavigationV2ReadQuery = beforeNavigationV2ReadQuery;
 
   final Future<void> Function(String bookId)? _beforeNavigationV2ReadQuery;
+
+  @visibleForTesting
+  static double? tryReadLegacyRebuildScrollPositionForTest(Object? value) {
+    return _tryReadLegacyRebuildScrollPosition(value);
+  }
+
+  @visibleForTesting
+  static DateTime? tryReadLegacyRebuildUpdatedAtForTest(Object? value) {
+    return _tryReadLegacyRebuildUpdatedAt(value);
+  }
 
   @override
   Future<List<Book>> getAllBooks() async {
@@ -141,15 +152,13 @@ class BookRepositoryImpl implements BookRepository {
     required List<ReaderDocument> documents,
   }) async {
     final db = await AppDatabase.database;
-    final input = await _getLegacyProgressMappingInput(db, bookId);
+    final input = await _getLegacyRebuildSeedInput(db, bookId);
     if (input == null) {
       return null;
     }
 
     final matches = documents
-        .where(
-          (document) => document.htmlContent == input.legacyFallbackContent,
-        )
+        .where((document) => document.htmlContent == input.legacyFallbackHtml)
         .toList();
     if (matches.length != 1) {
       return null;
@@ -589,7 +598,7 @@ class BookRepositoryImpl implements BookRepository {
     return ReadingProgressV2.fromMap(maps.first);
   }
 
-  Future<_LegacyProgressMappingInput?> _getLegacyProgressMappingInput(
+  Future<_LegacyRebuildSeedInput?> _getLegacyRebuildSeedInput(
     DatabaseExecutor executor,
     String bookId,
   ) async {
@@ -613,16 +622,69 @@ class BookRepositoryImpl implements BookRepository {
     }
 
     final row = maps.first;
-    final legacyFallbackContent = row['legacy_fallback_content'] as String?;
-    if (legacyFallbackContent == null) {
+    final legacyFallbackHtml = row['legacy_fallback_content'];
+    if (legacyFallbackHtml is! String) {
       return null;
     }
 
-    return _LegacyProgressMappingInput(
-      legacyFallbackContent: legacyFallbackContent,
-      scrollPosition: (row['scroll_position'] as num).toDouble(),
-      updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+    final scrollPosition = _tryReadLegacyRebuildScrollPosition(
+      row['scroll_position'],
     );
+    if (scrollPosition == null) {
+      return null;
+    }
+
+    final updatedAt = _tryReadLegacyRebuildUpdatedAt(row['updated_at']);
+    if (updatedAt == null) {
+      return null;
+    }
+
+    return _LegacyRebuildSeedInput(
+      legacyFallbackHtml: legacyFallbackHtml,
+      scrollPosition: scrollPosition,
+      updatedAt: updatedAt,
+    );
+  }
+
+  static double? _tryReadLegacyRebuildScrollPosition(Object? value) {
+    if (value is! num) {
+      return null;
+    }
+
+    final normalized = value.toDouble();
+    if (!normalized.isFinite) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  static DateTime? _tryReadLegacyRebuildUpdatedAt(Object? value) {
+    if (value is int) {
+      return _tryBuildDateTimeFromEpochMilliseconds(value);
+    }
+    if (value is! num) {
+      return null;
+    }
+
+    final normalized = value.toDouble();
+    if (!normalized.isFinite || normalized.truncateToDouble() != normalized) {
+      return null;
+    }
+
+    return _tryBuildDateTimeFromEpochMilliseconds(normalized.toInt());
+  }
+
+  static DateTime? _tryBuildDateTimeFromEpochMilliseconds(
+    int millisecondsSinceEpoch,
+  ) {
+    try {
+      return DateTime.fromMillisecondsSinceEpoch(millisecondsSinceEpoch);
+    } on ArgumentError {
+      return null;
+    } on RangeError {
+      return null;
+    }
   }
 
   ReadingProgressV2 _inheritProgressForReadyRefresh({
@@ -900,14 +962,14 @@ class BookRepositoryImpl implements BookRepository {
   }
 }
 
-class _LegacyProgressMappingInput {
-  const _LegacyProgressMappingInput({
-    required this.legacyFallbackContent,
+class _LegacyRebuildSeedInput {
+  const _LegacyRebuildSeedInput({
+    required this.legacyFallbackHtml,
     required this.scrollPosition,
     required this.updatedAt,
   });
 
-  final String legacyFallbackContent;
+  final String legacyFallbackHtml;
   final double scrollPosition;
   final DateTime updatedAt;
 }

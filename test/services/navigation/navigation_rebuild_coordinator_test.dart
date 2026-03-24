@@ -421,13 +421,47 @@ void main() {
         await coordinator.waitForActiveRebuild(bookId);
 
         expect(dataSource, BookReadingDataSource.legacy);
-        expect(repository.savedInitialProgress, isNotNull);
-        expect(repository.savedInitialProgress!.documentIndex, 1);
-        expect(repository.savedInitialProgress!.documentProgress, 0.65);
-        expect(
-          repository.savedInitialProgress!.updatedAt,
-          DateTime.utc(2026, 3, 22, 8),
+        expect(repository.book!.usesV2Navigation, isTrue);
+        expect(repository.progress, isNotNull);
+        expect(repository.progress!.documentIndex, 1);
+        expect(repository.progress!.documentProgress, 0.65);
+        expect(repository.progress!.updatedAt, DateTime.utc(2026, 3, 22, 8));
+      },
+    );
+
+    test(
+      'marks rebuild as failed when deriving legacy progress throws',
+      () async {
+        const bookId = 'book-progress-derive-throw';
+        final repository = _FakeBookRepository(
+          book: _book(
+            bookId,
+            navigationRebuildState: NavigationRebuildState.legacyPending,
+          ),
+          throwOnDeriveLegacyRebuildInitialProgress: true,
         );
+        final coordinator = NavigationRebuildCoordinator(
+          repository: repository,
+          parserService: _FakeEpubParserService(),
+        );
+
+        final dataSource = await coordinator.resolveDataSourceForSession(
+          bookId,
+        );
+        await coordinator.waitForActiveRebuild(bookId);
+
+        expect(dataSource, BookReadingDataSource.legacy);
+        expect(
+          repository.events,
+          orderedEquals(['mark:rebuilding', 'reset:failed']),
+        );
+        expect(
+          repository.book!.navigationRebuildState,
+          NavigationRebuildState.failed,
+        );
+        expect(repository.book!.usesV2Navigation, isFalse);
+        expect(repository.book!.navigationRebuildFailedAt, isNotNull);
+        expect(repository.progress, isNull);
       },
     );
 
@@ -559,8 +593,12 @@ void main() {
           scenario.repository.events,
           orderedEquals(['mark:rebuilding', 'save:ready']),
         );
-        expect(scenario.repository.savedInitialProgress, isNull);
         expect(scenario.repository.book!.usesV2Navigation, isTrue);
+        expect(scenario.repository.progress, isNotNull);
+        expect(scenario.repository.progress!.documentIndex, 0);
+        expect(scenario.repository.progress!.documentProgress, 0);
+        expect(scenario.repository.progress!.tocItemId, isNull);
+        expect(scenario.repository.progress!.anchor, isNull);
       });
     }
   });
@@ -739,6 +777,7 @@ class _FakeBookRepository implements BookRepository {
     this.tocItems = const [],
     this.readyProgress,
     this.refreshShouldThrow = false,
+    this.throwOnDeriveLegacyRebuildInitialProgress = false,
   }) : progress = readyProgress;
 
   Book? book;
@@ -746,6 +785,7 @@ class _FakeBookRepository implements BookRepository {
   final ReadingProgress? legacyProgress;
   final ReadingProgressV2? readyProgress;
   final bool refreshShouldThrow;
+  final bool throwOnDeriveLegacyRebuildInitialProgress;
   List<ReaderDocument> documents;
   List<TocItem> tocItems;
   ReadingProgressV2? progress;
@@ -882,6 +922,9 @@ class _FakeBookRepository implements BookRepository {
     required String bookId,
     required List<ReaderDocument> documents,
   }) async {
+    if (throwOnDeriveLegacyRebuildInitialProgress) {
+      throw StateError('forced legacy rebuild seed failure');
+    }
     if (legacyProgress?.bookId != bookId) {
       return null;
     }

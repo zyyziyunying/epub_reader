@@ -90,6 +90,20 @@ final readerInitialProgressV2Provider = FutureProvider.autoDispose
       return repository.getReadingProgressV2(session.bookId);
     });
 
+class LegacyFallbackSection {
+  const LegacyFallbackSection({required this.title, required this.htmlContent});
+
+  factory LegacyFallbackSection.fromChapter(Chapter chapter) {
+    return LegacyFallbackSection(
+      title: chapter.title,
+      htmlContent: chapter.content,
+    );
+  }
+
+  final String title;
+  final String htmlContent;
+}
+
 // 导入状态
 final importingProvider = StateProvider<bool>((ref) => false);
 
@@ -246,9 +260,15 @@ class ReadingSettingsNotifier extends StateNotifier<ReadingSettings> {
 
 // ============ 阅读器相关 Providers ============
 
-// 当前书籍的 legacy fallback 正文列表
-final legacyFallbackContentProvider =
-    FutureProvider.family<List<Chapter>, String>((ref, bookId) async {
+// 当前书籍的 legacy fallback 正文切片
+final legacyFallbackSectionsProvider =
+    FutureProvider.family<List<LegacyFallbackSection>, String>((
+      ref,
+      bookId,
+    ) async {
       final repository = ref.watch(bookRepositoryProvider);
-      return repository.getChaptersByBookId(bookId);
+      final chapters = await repository.getChaptersByBookId(bookId);
+      return chapters
+          .map(LegacyFallbackSection.fromChapter)
+          .toList(growable: false);
     });
