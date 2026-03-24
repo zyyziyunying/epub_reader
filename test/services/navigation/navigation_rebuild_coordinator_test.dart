@@ -878,21 +878,43 @@ class _FakeBookRepository implements BookRepository {
   }
 
   @override
-  Future<Chapter?> getChapter(String bookId, int index) async {
-    for (final chapter in chapters) {
-      if (chapter.bookId == bookId && chapter.index == index) {
-        return chapter;
-      }
-    }
-    return null;
-  }
-
-  @override
-  Future<ReadingProgress?> getReadingProgress(String bookId) async {
+  Future<ReadingProgressV2?> deriveLegacyRebuildInitialProgressV2({
+    required String bookId,
+    required List<ReaderDocument> documents,
+  }) async {
     if (legacyProgress?.bookId != bookId) {
       return null;
     }
-    return legacyProgress;
+
+    Chapter? legacyChapter;
+    for (final chapter in chapters) {
+      if (chapter.bookId == bookId &&
+          chapter.index == legacyProgress!.chapterIndex) {
+        legacyChapter = chapter;
+        break;
+      }
+    }
+    if (legacyChapter == null) {
+      return null;
+    }
+
+    final matches = documents
+        .where((document) => document.htmlContent == legacyChapter!.content)
+        .toList();
+    if (matches.length != 1) {
+      return null;
+    }
+
+    return ReadingProgressV2(
+      bookId: bookId,
+      documentIndex: matches.single.documentIndex,
+      documentProgress: legacyProgress!.scrollPosition
+          .clamp(0.0, 1.0)
+          .toDouble(),
+      tocItemId: null,
+      anchor: null,
+      updatedAt: legacyProgress!.updatedAt,
+    );
   }
 
   @override
@@ -932,11 +954,6 @@ class _FakeBookRepository implements BookRepository {
 
   @override
   Future<void> insertChapters(List<Chapter> chapters) {
-    throw UnimplementedError();
-  }
-
-  @override
-  Future<void> saveReadingProgress(ReadingProgress progress) {
     throw UnimplementedError();
   }
 

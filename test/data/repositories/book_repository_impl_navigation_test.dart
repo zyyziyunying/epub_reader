@@ -426,6 +426,177 @@ void main() {
     );
 
     test(
+      'deriveLegacyRebuildInitialProgressV2 maps legacy progress from persisted fallback content',
+      () async {
+        await repository.insertBook(_book(existingBookId));
+        await repository.insertChapter(
+          _legacyChapter(
+            existingBookId,
+            0,
+          ).copyWith(content: '<html><body>Matched document</body></html>'),
+        );
+        await _seedLegacyReadingProgress(
+          existingBookId,
+          chapterIndex: 0,
+          scrollPosition: 1.4,
+          updatedAt: DateTime.utc(2026, 3, 22, 8),
+        );
+
+        final progress = await repository.deriveLegacyRebuildInitialProgressV2(
+          bookId: existingBookId,
+          documents: [
+            ReaderDocument(
+              id: '$existingBookId:reader_document:0',
+              bookId: existingBookId,
+              documentIndex: 0,
+              fileName: 'OPS/Text/ch1.xhtml',
+              title: 'Document 0',
+              htmlContent: '<html><body>Other document</body></html>',
+            ),
+            ReaderDocument(
+              id: '$existingBookId:reader_document:1',
+              bookId: existingBookId,
+              documentIndex: 1,
+              fileName: 'OPS/Text/ch2.xhtml',
+              title: 'Document 1',
+              htmlContent: '<html><body>Matched document</body></html>',
+            ),
+          ],
+        );
+
+        expect(progress, isNotNull);
+        expect(progress!.documentIndex, 1);
+        expect(progress.documentProgress, 1.0);
+        expect(progress.tocItemId, isNull);
+        expect(progress.anchor, isNull);
+        expect(
+          progress.updatedAt.millisecondsSinceEpoch,
+          DateTime.utc(2026, 3, 22, 8).millisecondsSinceEpoch,
+        );
+      },
+    );
+
+    for (final scenario in [
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when legacy progress is missing',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when the legacy chapter row is missing',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await _seedLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 3,
+            scrollPosition: 0.4,
+            updatedAt: DateTime.utc(2026, 3, 22, 9),
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Matched document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when fallback content does not match any document',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Unmatched document</body></html>'),
+          );
+          await _seedLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: DateTime.utc(2026, 3, 22, 10),
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Other document</body></html>',
+          ),
+        ],
+      ),
+      (
+        description:
+            'deriveLegacyRebuildInitialProgressV2 returns null when fallback content matches multiple documents',
+        seed: () async {
+          await repository.insertBook(_book(existingBookId));
+          await repository.insertChapter(
+            _legacyChapter(
+              existingBookId,
+              0,
+            ).copyWith(content: '<html><body>Duplicate document</body></html>'),
+          );
+          await _seedLegacyReadingProgress(
+            existingBookId,
+            chapterIndex: 0,
+            scrollPosition: 0.4,
+            updatedAt: DateTime.utc(2026, 3, 22, 11),
+          );
+        },
+        documents: [
+          ReaderDocument(
+            id: '$existingBookId:reader_document:0',
+            bookId: existingBookId,
+            documentIndex: 0,
+            fileName: 'OPS/Text/ch1.xhtml',
+            title: 'Document 0',
+            htmlContent: '<html><body>Duplicate document</body></html>',
+          ),
+          ReaderDocument(
+            id: '$existingBookId:reader_document:1',
+            bookId: existingBookId,
+            documentIndex: 1,
+            fileName: 'OPS/Text/ch2.xhtml',
+            title: 'Document 1',
+            htmlContent: '<html><body>Duplicate document</body></html>',
+          ),
+        ],
+      ),
+    ]) {
+      test(scenario.description, () async {
+        await scenario.seed();
+
+        final progress = await repository.deriveLegacyRebuildInitialProgressV2(
+          bookId: existingBookId,
+          documents: scenario.documents,
+        );
+
+        expect(progress, isNull);
+      });
+    }
+
+    test(
       'updates V2 reading progress only while the book remains ready',
       () async {
         await repository.insertBook(_book(existingBookId));
@@ -987,6 +1158,21 @@ Future<void> _seedReadyNavigationData(
     tocItems: _tocItems(bookId),
     initialProgress: initialProgress,
   );
+}
+
+Future<void> _seedLegacyReadingProgress(
+  String bookId, {
+  required int chapterIndex,
+  required double scrollPosition,
+  required DateTime updatedAt,
+}) async {
+  final db = await AppDatabase.database;
+  await db.insert('reading_progress', {
+    'book_id': bookId,
+    'chapter_index': chapterIndex,
+    'scroll_position': scrollPosition,
+    'updated_at': updatedAt.millisecondsSinceEpoch,
+  });
 }
 
 Future<ReadingProgressV2> _loadStoredProgress(

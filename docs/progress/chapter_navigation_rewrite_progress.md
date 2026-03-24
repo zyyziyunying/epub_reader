@@ -152,8 +152,8 @@ Date: 2026-03-24
   - 增量保存前会校验当前 `ReaderDocument[]` / `TocItem[]` 边界，拒绝非法 `documentIndex`、不存在的 `tocItemId` 和 `targetDocumentIndex` 不一致的引用
   - `documentProgress` 写入前统一 clamp 到 `[0, 1]`
 - `lib/services/navigation/navigation_rebuild_coordinator.dart` 现已：
-  - 在旧书重建成功提交 `ready` 前读取 legacy `ReadingProgress`
-  - 通过 `getChapter` 取回 legacy chapter 内容，并按 `chapter.content == ReaderDocument.htmlContent` 做 best-effort 映射
+  - 在旧书重建成功提交 `ready` 前，通过 repository 的专用 legacy rebuild 入口读取 best-effort 映射输入
+  - repository 侧会把 legacy `ReadingProgress + Chapter.content` 收敛为一次性映射输入，并继续按 `chapter.content == ReaderDocument.htmlContent` 做 best-effort 映射
   - 代码路径约定为：仅在唯一命中时写入迁移后的 `ReadingProgressV2`；未命中或歧义时保持默认初始进度
 - `lib/presentation/providers/book_providers.dart` 已新增：
   - 按阅读会话作用域隔离的 `readerInitialProgressV2Provider`
@@ -188,7 +188,7 @@ Date: 2026-03-24
   - reader 侧 legacy 正文 provider / widget 现已按 fallback 语义命名，避免继续把 `Chapter` 误用成主导航模型
 - 当前仍保留的 legacy 职责：
   - 旧书 `legacy_pending / rebuilding / failed` 会话的连续正文 fallback 渲染
-  - 旧进度 `ReadingProgress` 与 `Chapter.content` 作为后台重建 best-effort 映射输入
+  - 旧进度 `ReadingProgress` 与 `Chapter.content` 仅作为 repository 专用的后台重建 best-effort 映射输入
   - V2-only `ready` 书的刷新已切到独立入口；legacy 降级链路继续只服务仍有 fallback 正文的旧书状态机，详见 [`../problem/chapter_navigation_rework_step6_v2_only_ready_blockers.md`](../problem/chapter_navigation_rework_step6_v2_only_ready_blockers.md)
 
 ## 当前未完成切片

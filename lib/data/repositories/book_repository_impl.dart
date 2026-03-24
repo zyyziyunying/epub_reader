@@ -4,7 +4,6 @@ import '../../../domain/entities/book_reading_data_source.dart';
 import '../../../domain/entities/book.dart';
 import '../../../domain/entities/chapter.dart';
 import '../../../domain/entities/navigation_rebuild_state.dart';
-import '../../../domain/entities/reading_progress.dart';
 import '../../../domain/entities/reading_progress_v2.dart';
 import '../../../domain/entities/reader_document.dart';
 import '../../../domain/entities/toc_item.dart';
@@ -75,18 +74,6 @@ class BookRepositoryImpl implements BookRepository {
   }
 
   @override
-  Future<Chapter?> getChapter(String bookId, int index) async {
-    final db = await AppDatabase.database;
-    final maps = await db.query(
-      'chapters',
-      where: 'book_id = ? AND chapter_index = ?',
-      whereArgs: [bookId, index],
-    );
-    if (maps.isEmpty) return null;
-    return Chapter.fromMap(maps.first);
-  }
-
-  @override
   Future<void> insertChapter(Chapter chapter) async {
     final db = await AppDatabase.database;
     await db.insert(
@@ -149,24 +136,32 @@ class BookRepositoryImpl implements BookRepository {
   }
 
   @override
-  Future<ReadingProgress?> getReadingProgress(String bookId) async {
+  Future<ReadingProgressV2?> deriveLegacyRebuildInitialProgressV2({
+    required String bookId,
+    required List<ReaderDocument> documents,
+  }) async {
     final db = await AppDatabase.database;
-    final maps = await db.query(
-      'reading_progress',
-      where: 'book_id = ?',
-      whereArgs: [bookId],
-    );
-    if (maps.isEmpty) return null;
-    return ReadingProgress.fromMap(maps.first);
-  }
+    final input = await _getLegacyProgressMappingInput(db, bookId);
+    if (input == null) {
+      return null;
+    }
 
-  @override
-  Future<void> saveReadingProgress(ReadingProgress progress) async {
-    final db = await AppDatabase.database;
-    await db.insert(
-      'reading_progress',
-      progress.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    final matches = documents
+        .where(
+          (document) => document.htmlContent == input.legacyFallbackContent,
+        )
+        .toList();
+    if (matches.length != 1) {
+      return null;
+    }
+
+    return ReadingProgressV2(
+      bookId: bookId,
+      documentIndex: matches.single.documentIndex,
+      documentProgress: input.scrollPosition.clamp(0.0, 1.0).toDouble(),
+      tocItemId: null,
+      anchor: null,
+      updatedAt: input.updatedAt,
     );
   }
 
@@ -594,6 +589,42 @@ class BookRepositoryImpl implements BookRepository {
     return ReadingProgressV2.fromMap(maps.first);
   }
 
+  Future<_LegacyProgressMappingInput?> _getLegacyProgressMappingInput(
+    DatabaseExecutor executor,
+    String bookId,
+  ) async {
+    final maps = await executor.rawQuery(
+      '''
+      SELECT
+        rp.scroll_position,
+        rp.updated_at,
+        c.content AS legacy_fallback_content
+      FROM reading_progress rp
+      LEFT JOIN chapters c
+        ON c.book_id = rp.book_id
+       AND c.chapter_index = rp.chapter_index
+      WHERE rp.book_id = ?
+      LIMIT 1
+      ''',
+      [bookId],
+    );
+    if (maps.isEmpty) {
+      return null;
+    }
+
+    final row = maps.first;
+    final legacyFallbackContent = row['legacy_fallback_content'] as String?;
+    if (legacyFallbackContent == null) {
+      return null;
+    }
+
+    return _LegacyProgressMappingInput(
+      legacyFallbackContent: legacyFallbackContent,
+      scrollPosition: (row['scroll_position'] as num).toDouble(),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+    );
+  }
+
   ReadingProgressV2 _inheritProgressForReadyRefresh({
     required String bookId,
     required int documentCount,
@@ -867,4 +898,16 @@ class BookRepositoryImpl implements BookRepository {
       whereArgs: [bookId],
     );
   }
+}
+
+class _LegacyProgressMappingInput {
+  const _LegacyProgressMappingInput({
+    required this.legacyFallbackContent,
+    required this.scrollPosition,
+    required this.updatedAt,
+  });
+
+  final String legacyFallbackContent;
+  final double scrollPosition;
+  final DateTime updatedAt;
 }

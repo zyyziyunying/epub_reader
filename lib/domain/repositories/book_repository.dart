@@ -2,7 +2,6 @@ import '../../../domain/entities/book_reading_data_source.dart';
 import '../../../domain/entities/book.dart';
 import '../../../domain/entities/chapter.dart';
 import '../../../domain/entities/navigation_rebuild_state.dart';
-import '../../../domain/entities/reading_progress.dart';
 import '../../../domain/entities/reading_progress_v2.dart';
 import '../../../domain/entities/reader_document.dart';
 import '../../../domain/entities/toc_item.dart';
@@ -17,9 +16,6 @@ abstract class BookRepository {
   /// Legacy fallback content used only by non-ready reader sessions.
   Future<List<Chapter>> getChaptersByBookId(String bookId);
 
-  /// Legacy chapter lookup used only by best-effort progress mapping.
-  Future<Chapter?> getChapter(String bookId, int index);
-
   /// Legacy import / fallback helpers retained for old-session compatibility.
   Future<void> insertChapter(Chapter chapter);
   Future<void> insertChapters(List<Chapter> chapters);
@@ -30,9 +26,11 @@ abstract class BookRepository {
     ReadingProgressV2? initialProgress,
   });
 
-  /// Legacy progress retained only for best-effort mapping into V2.
-  Future<ReadingProgress?> getReadingProgress(String bookId);
-  Future<void> saveReadingProgress(ReadingProgress progress);
+  /// Legacy reading progress is only exposed as a best-effort rebuild seed.
+  Future<ReadingProgressV2?> deriveLegacyRebuildInitialProgressV2({
+    required String bookId,
+    required List<ReaderDocument> documents,
+  });
   Future<BookReadingDataSource> getBookReadingDataSource(String bookId);
   Future<List<ReaderDocument>> getReaderDocumentsByBookId(String bookId);
   Future<List<TocItem>> getTocItemsByBookId(String bookId);

@@ -5,7 +5,6 @@ import 'package:epub_reader/domain/entities/book_reading_data_source.dart';
 import 'package:epub_reader/domain/entities/chapter.dart';
 import 'package:epub_reader/domain/entities/document_nav_item.dart';
 import 'package:epub_reader/domain/entities/navigation_rebuild_state.dart';
-import 'package:epub_reader/domain/entities/reading_progress.dart';
 import 'package:epub_reader/domain/entities/reading_progress_v2.dart';
 import 'package:epub_reader/domain/entities/reader_document.dart';
 import 'package:epub_reader/domain/entities/toc_item.dart';
@@ -213,10 +212,6 @@ class _CapturingBookRepository implements BookRepository {
       throw UnimplementedError();
 
   @override
-  Future<Chapter?> getChapter(String bookId, int index) async =>
-      throw UnimplementedError();
-
-  @override
   Future<void> insertChapter(Chapter chapter) async =>
       throw UnimplementedError();
 
@@ -225,12 +220,10 @@ class _CapturingBookRepository implements BookRepository {
       throw UnimplementedError();
 
   @override
-  Future<ReadingProgress?> getReadingProgress(String bookId) async =>
-      throw UnimplementedError();
-
-  @override
-  Future<void> saveReadingProgress(ReadingProgress progress) async =>
-      throw UnimplementedError();
+  Future<ReadingProgressV2?> deriveLegacyRebuildInitialProgressV2({
+    required String bookId,
+    required List<ReaderDocument> documents,
+  }) async => throw UnimplementedError();
 
   @override
   Future<BookReadingDataSource> getBookReadingDataSource(String bookId) async =>
